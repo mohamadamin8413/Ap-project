@@ -1,40 +1,29 @@
-
-import 'Song.dart';
-
 class User {
-  final int id;
-  String username;
-  String password;
-  String email;
-  final List<Music> likedSongs;
+  final int? id;
+  final String email;
+  final String username;
+  final String password;
 
   User({
-    required this.id,
+    this.id,
+    required this.email,
     required this.username,
     required this.password,
-    required this.email,
-    List<Music>? likedSongs,
-  }) : likedSongs = likedSongs ?? [];
+  });
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'],
-      username: json['username'],
-      password: json['password'],
-      email: json['email'],
-      likedSongs: (json['likedMusics'] as List<dynamic>?)
-          ?.map((e) => Music.fromJson(e))
-          .toList() ?? [],
+      id: json['id'] as int?,
+      email: json['email'] as String,
+      username: json['username'] as String,
+      password: json['password'] as String,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'username': username,
-    'password': password,
-    'email': email,
-    'likedMusics': likedSongs.map((s) => s.toJson()).toList(),
-  };
-
-  int getid() => id;
+        'id': id,
+        'email': email,
+        'username': username,
+        'password': password,
+      };
 }

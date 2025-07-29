@@ -3,14 +3,12 @@ class Music {
   final String title;
   final String artist;
   final String filePath;
-  final DateTime uploadDate;
 
   Music({
     required this.id,
     required this.title,
     required this.artist,
     required this.filePath,
-    required this.uploadDate,
   });
 
   factory Music.fromJson(Map<String, dynamic> json) {
@@ -19,7 +17,6 @@ class Music {
       title: json['title'],
       artist: json['artist'],
       filePath: json['filePath'],
-      uploadDate: DateTime.parse(json['uploadDate']),
     );
   }
 
@@ -28,6 +25,5 @@ class Music {
     'title': title,
     'artist': artist,
     'filePath': filePath,
-    'uploadDate': uploadDate.toIso8601String(),
   };
 }

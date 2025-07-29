@@ -1,341 +1,472 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:animate_do/animate_do.dart';
+import 'package:flutter_spinkit/flutter_spinkit.dart';
+import 'package:projectap/Homepage.dart';
+import 'package:projectap/PlaylistPage.dart';
+import 'package:projectap/Signup.dart';
+import 'package:projectap/User.dart';
 import 'package:projectap/appstorage.dart';
 import 'package:projectap/apiservice.dart';
-import 'package:projectap/Signscreen.dart';
-import 'package:projectap/User.dart';
+
+AppStorage storage = AppStorage();
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({Key? key}) : super(key: key);
+  const ProfilePage({super.key});
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool isDarkMode = false;
-  bool isLoading = false;
   User? currentUser;
+  bool isLoading = false;
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  int _selectedIndex = 2;
 
   @override
   void initState() {
     super.initState();
-    _loadUser();
+    _loadCurrentUser();
   }
 
-  Future<void> _loadUser() async {
-    final user = await AppStorage().loadCurrentUser();
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+  Future<void> _loadCurrentUser() async {
+    final user = await storage.loadCurrentUser();
     setState(() {
       currentUser = user;
       if (user != null) {
-        _nameController.text = user.username;
-        _emailController.text = user.email;
+        _usernameController.text = user.username;
       }
-      isDarkMode = Theme.of(context).brightness == Brightness.dark;
     });
   }
 
-  Future<void> _saveProfile() async {
-    if (!_formKey.currentState!.validate() || currentUser == null) return;
-
+  Future<void> _updateProfile() async {
+    if (currentUser == null || _usernameController.text.trim().isEmpty) {
+      _showMessage('Please enter a username', error: true);
+      return;
+    }
     setState(() => isLoading = true);
     try {
       final request = SocketRequest(
         action: 'update_user',
         data: {
-          'email': _emailController.text.trim(),
-          'username': _nameController.text.trim(),
+          'email': currentUser!.email,
+          'username': _usernameController.text.trim(),
           'password': _passwordController.text.trim().isEmpty
               ? currentUser!.password
               : _passwordController.text.trim(),
         },
       );
       final response = await SocketService().send(request);
-      if (response.isSuccess) {
-        final updatedUser = User.fromJson(response.data);
-        await AppStorage().saveCurrentUser(updatedUser);
-        setState(() => currentUser = updatedUser);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Profile updated successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
+      if (response.isSuccess && response.data != null) {
+        final updatedUser = User.fromJson(response.data as Map<String, dynamic>);
+        await storage.saveCurrentUser(updatedUser);
+        setState(() {
+          currentUser = updatedUser;
+          _usernameController.text = updatedUser.username;
+        });
+        _passwordController.clear();
+        _showMessage('Profile updated successfully', error: false);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update profile: ${response.message}')),
-        );
+        _showMessage('Failed to update profile: ${response.message}', error: true);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      _showMessage('Error updating profile: $e', error: true);
     } finally {
       setState(() => isLoading = false);
     }
   }
-
   Future<void> _logout() async {
-    await AppStorage().resetCurrentUser();
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const Screen1()),
-    );
-  }
-
-  Future<void> _deleteAccount() async {
-    if (currentUser == null) return;
-
-    setState(() => isLoading = true);
-    try {
-      final request = SocketRequest(
-        action: 'delete_user',
-        data: {'email': currentUser!.email},
-      );
-      final response = await SocketService().send(request);
-      if (response.isSuccess) {
-        await AppStorage().resetCurrentUser();
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const Screen1()),
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Account deleted successfully'),
-            backgroundColor: Colors.green,
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1E1E1E), Color(0xFF121212)],
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete account: ${response.message}')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    } finally {
-      setState(() => isLoading = false);
-    }
-  }
-
-  void _toggleTheme() {
-    setState(() => isDarkMode = !isDarkMode);
-    Navigator.pop(context, isDarkMode ? ThemeMode.dark : ThemeMode.light);
-  }
-
-  Widget _buildInputField({
-    required String hint,
-    required IconData icon,
-    required TextEditingController controller,
-    bool obscureText = false,
-    String? Function(String?)? validator,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: TextFormField(
-        controller: controller,
-        obscureText: obscureText,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          prefixIcon: Icon(icon, color: Colors.greenAccent),
-          hintText: hint,
-          hintStyle: const TextStyle(color: Colors.white54),
-          filled: true,
-          fillColor: Colors.white10,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-          enabledBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.greenAccent),
-            borderRadius: BorderRadius.circular(30),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.greenAccent, width: 2),
-            borderRadius: BorderRadius.circular(30),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.redAccent),
-            borderRadius: BorderRadius.circular(30),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.redAccent, width: 2),
-            borderRadius: BorderRadius.circular(30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Logout',
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Are you sure you want to logout?',
+                style: GoogleFonts.poppins(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  textStyle: Theme.of(context).textTheme.bodyMedium,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                    ),
+                    child: Text(
+                      'Logout',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        validator: validator,
       ),
     );
+
+    if (confirm != true) return;
+
+    await storage.resetCurrentUser();
+    setState(() {
+      currentUser = null;
+    });
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const Screen2()),
+    );
+  }
+
+
+  void _showMessage(String message, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontSize: 14,
+            textStyle: Theme.of(context).textTheme.bodyMedium,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        backgroundColor: error ? Colors.redAccent : const Color(0xFF1DB954),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        duration: const Duration(seconds: 3),
+        elevation: 10,
+      ),
+    );
+  }
+
+  void _onNavBarTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+    switch (index) {
+      case 0:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MusicHomePage()),
+        );
+        break;
+      case 1:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const PlaylistPage()),
+        );
+        break;
+      case 2:
+        break;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF2E2E2E),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text(
-          'Profile',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF121212), Color(0xFF1DB954)],
+          ),
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.greenAccent),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Form(
-          key: _formKey,
-          child: ListView(
+        child: SafeArea(
+          child: isLoading
+              ? Center(
+            child: SpinKitFadingCircle(
+              color: const Color(0xFF1DB954),
+              size: 50,
+            ),
+          )
+              : currentUser == null
+              ? Center(
+            child: Text(
+              'Please log in',
+              style: GoogleFonts.poppins(
+                color: Colors.white54,
+                fontSize: 18,
+                textStyle: Theme.of(context).textTheme.bodyLarge,
+              ),
+            ),
+          )
+              : Column(
             children: [
-              Center(
-                child: Column(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.greenAccent, width: 2),
-                      ),
-                      child: const CircleAvatar(
-                        radius: 50,
-                        backgroundColor: Color(0xFF3A3A3A),
-                        child: Icon(
-                          Icons.person,
-                          size: 60,
-                          color: Colors.greenAccent,
+              AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                title: Text(
+                  'Profile',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    textStyle: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                leading: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back,
+                    color: Color(0xFF1DB954),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      FadeInDown(
+                        duration: const Duration(milliseconds: 600),
+                        child: Text(
+                          'Email: ${currentUser!.email}',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            textStyle: Theme.of(context).textTheme.bodyLarge,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      currentUser?.username ?? 'User',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                      const SizedBox(height: 20),
+                      FadeInUp(
+                        duration: const Duration(milliseconds: 600),
+                        child: TextField(
+                          controller: _usernameController,
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 16,
+                            textStyle: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Username',
+                            labelStyle: GoogleFonts.poppins(
+                              color: Colors.white54,
+                              textStyle: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.1),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 18,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                    Text(
-                      currentUser?.email ?? 'Email',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 16,
+                      const SizedBox(height: 20),
+                      FadeInUp(
+                        duration: const Duration(milliseconds: 600),
+                        child: TextField(
+                          controller: _passwordController,
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 16,
+                            textStyle: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                          obscureText: true,
+                          decoration: InputDecoration(
+                            labelText: 'New Password (optional)',
+                            labelStyle: GoogleFonts.poppins(
+                              color: Colors.white54,
+                              textStyle: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.1),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 18,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 30),
-              _buildInputField(
-                hint: 'Name',
-                icon: Icons.person,
-                controller: _nameController,
-                validator: (value) {
-                  if (value == null || value.isEmpty) return 'Name cannot be empty';
-                  if (value.length < 3) return 'Name must be at least 3 characters';
-                  return null;
-                },
-              ),
-              _buildInputField(
-                hint: 'Email',
-                icon: Icons.email_outlined,
-                controller: _emailController,
-                validator: (value) {
-                  if (value == null || value.isEmpty) return 'Email cannot be empty';
-                  if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w]{2,4}$').hasMatch(value)) {
-                    return 'Enter a valid email';
-                  }
-                  return null;
-                },
-              ),
-              _buildInputField(
-                hint: 'New Password (optional)',
-                icon: Icons.lock_outline,
-                controller: _passwordController,
-                obscureText: true,
-              ),
-              const SizedBox(height: 20),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                decoration: BoxDecoration(
-                  color: Colors.white10,
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: SwitchListTile(
-                  title: const Text(
-                    'Dark Mode',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  value: isDarkMode,
-                  activeColor: Colors.greenAccent,
-                  onChanged: (val) => _toggleTheme(),
-                ),
-              ),
-              const SizedBox(height: 20),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                child: ElevatedButton(
-                  onPressed: isLoading ? null : _saveProfile,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.greenAccent,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    elevation: 10,
-                  ),
-                  child: isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                    'Save Changes',
-                    style: TextStyle(fontSize: 18, color: Colors.white),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                child: ElevatedButton(
-                  onPressed: isLoading ? null : _logout,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    elevation: 10,
-                  ),
-                  child: const Text(
-                    'Log Out',
-                    style: TextStyle(fontSize: 18, color: Colors.white),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                child: ElevatedButton(
-                  onPressed: isLoading ? null : _deleteAccount,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    elevation: 10,
-                  ),
-                  child: const Text(
-                    'Delete Account',
-                    style: TextStyle(fontSize: 18, color: Colors.white),
+                      const SizedBox(height: 30),
+                      FadeInUp(
+                        duration: const Duration(milliseconds: 600),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF1DB954), Color(0xFF17A14A)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.3),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton(
+                            onPressed: _updateProfile,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 14,
+                              ),
+                            ),
+                            child: Text(
+                              'Update Profile',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                textStyle: Theme.of(context).textTheme.labelLarge,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      FadeInUp(
+                        duration: const Duration(milliseconds: 600),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Colors.redAccent, Color(0xFFD32F2F)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.3),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton(
+                            onPressed: _logout,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 14,
+                              ),
+                            ),
+                            child: Text(
+                              'Logout',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                textStyle: Theme.of(context).textTheme.labelLarge,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ],
           ),
         ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: _onNavBarTapped,
+        backgroundColor: const Color(0xFF1E1E1E),
+        selectedItemColor: const Color(0xFF1DB954),
+        unselectedItemColor: Colors.white54,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.music_note),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.queue_music),
+            label: 'Playlists',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+        selectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+        unselectedLabelStyle: GoogleFonts.poppins(),
       ),
     );
   }

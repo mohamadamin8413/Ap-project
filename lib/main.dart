@@ -12,7 +12,6 @@ void main() async {
   await storage.init();
   runApp(const MyApp());
 }
-
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
