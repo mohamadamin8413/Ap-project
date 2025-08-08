@@ -23,7 +23,7 @@ dependencies:
     animate_do: ^3.3.4
     flutter_spinkit: ^5.2.1
     lottie: ^3.1.2
-
+    id3: ^1.0.2
 
 dev_dependencies:
     flutter_test:

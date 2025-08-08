@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:animate_do/animate_do.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:projectap/Homepage.dart';
 import 'package:projectap/PlaylistPage.dart';
-import 'package:projectap/Signup.dart';
+import 'package:projectap/Signscreen.dart';
 import 'package:projectap/User.dart';
 import 'package:projectap/appstorage.dart';
 import 'package:projectap/apiservice.dart';
@@ -21,6 +20,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   User? currentUser;
   bool isLoading = false;
+  bool allowSharing = true;
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   int _selectedIndex = 2;
@@ -37,14 +37,36 @@ class _ProfilePageState extends State<ProfilePage> {
     _passwordController.dispose();
     super.dispose();
   }
+
   Future<void> _loadCurrentUser() async {
     final user = await storage.loadCurrentUser();
     setState(() {
       currentUser = user;
       if (user != null) {
         _usernameController.text = user.username;
+        // Assuming allowSharing is part of User model, fetch it from backend
       }
     });
+    if (user != null) {
+      await _loadSharingSettings();
+    }
+  }
+
+  Future<void> _loadSharingSettings() async {
+    try {
+      final request = SocketRequest(
+        action: 'get_user', // Assuming backend supports fetching user details
+        data: {'email': currentUser!.email},
+      );
+      final response = await SocketService().send(request);
+      if (response.isSuccess && response.data != null) {
+        setState(() {
+          allowSharing = response.data['allowSharing'] ?? true;
+        });
+      }
+    } catch (e) {
+      _showMessage('Error loading sharing settings: $e', error: true);
+    }
   }
 
   Future<void> _updateProfile() async {
@@ -73,7 +95,7 @@ class _ProfilePageState extends State<ProfilePage> {
           _usernameController.text = updatedUser.username;
         });
         _passwordController.clear();
-        _showMessage('Profile updated successfully', error: false);
+        _showMessage('Profile updated successfully');
       } else {
         _showMessage('Failed to update profile: ${response.message}', error: true);
       }
@@ -83,116 +105,149 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() => isLoading = false);
     }
   }
+
+  Future<void> _toggleSharing() async {
+    setState(() => isLoading = true);
+    try {
+      final request = SocketRequest(
+        action: 'toggle_sharing',
+        data: {
+          'email': currentUser!.email,
+          'allow_sharing': !allowSharing,
+        },
+      );
+      final response = await SocketService().send(request);
+      if (response.isSuccess) {
+        setState(() {
+          allowSharing = !allowSharing;
+        });
+        _showMessage('Sharing settings updated');
+      } else {
+        _showMessage('Failed to update sharing settings: ${response.message}', error: true);
+      }
+    } catch (e) {
+      _showMessage('Error updating sharing settings: $e', error: true);
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
   Future<void> _logout() async {
     bool? confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1E1E1E), Color(0xFF121212)],
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Logout',
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Are you sure you want to logout?',
-                style: GoogleFonts.poppins(
-                  color: Colors.white70,
-                  fontSize: 14,
-                  textStyle: Theme.of(context).textTheme.bodyMedium,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: Text(
-                      'Cancel',
-                      style: GoogleFonts.poppins(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.redAccent,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                    ),
-                    child: Text(
-                      'Logout',
-                      style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Logout',
+          style: GoogleFonts.poppins(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600),
         ),
+        content: Text(
+          'Are you sure you want to logout?',
+          style: GoogleFonts.poppins(color: Colors.white54),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(color: const Color(0xFFCE93D8)),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFCE93D8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text(
+              'Logout',
+              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
       ),
     );
-
-    if (confirm != true) return;
-
-    await storage.resetCurrentUser();
-    setState(() {
-      currentUser = null;
-    });
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const Screen2()),
-    );
+    if (confirm == true) {
+      await storage.resetCurrentUser();
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const Screen1()),
+      );
+    }
   }
 
+  Future<void> _deleteAccount() async {
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Delete Account',
+          style: GoogleFonts.poppins(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          'Are you sure you want to delete your account? This action cannot be undone.',
+          style: GoogleFonts.poppins(color: Colors.white54),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(color: const Color(0xFFCE93D8)),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text(
+              'Delete',
+              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      setState(() => isLoading = true);
+      try {
+        final request = SocketRequest(
+          action: 'delete_user',
+          data: {'email': currentUser!.email},
+        );
+        final response = await SocketService().send(request);
+        if (response.isSuccess) {
+          await storage.resetCurrentUser();
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const Screen1()),
+          );
+          _showMessage('Account deleted successfully');
+        } else {
+          _showMessage('Failed to delete account: ${response.message}', error: true);
+        }
+      } catch (e) {
+        _showMessage('Error deleting account: $e', error: true);
+      } finally {
+        setState(() => isLoading = false);
+      }
+    }
+  }
 
   void _showMessage(String message, {bool error = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           message,
-          style: GoogleFonts.poppins(
-            color: Colors.white,
-            fontSize: 14,
-            textStyle: Theme.of(context).textTheme.bodyMedium,
-          ),
+          style: GoogleFonts.poppins(color: Colors.white, fontSize: 14),
           textAlign: TextAlign.center,
         ),
-        backgroundColor: error ? Colors.redAccent : const Color(0xFF1DB954),
+        backgroundColor: error ? Colors.redAccent : const Color(0xFFCE93D8),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -206,241 +261,232 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() {
       _selectedIndex = index;
     });
-    switch (index) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MusicHomePage()),
-        );
-        break;
-      case 1:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const PlaylistPage()),
-        );
-        break;
-      case 2:
-        break;
+    if (index == 0) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const MusicHomePage()),
+      );
+    } else if (index == 1) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const PlaylistPage()),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF121212), Color(0xFF1DB954)],
-          ),
-        ),
-        child: SafeArea(
-          child: isLoading
-              ? Center(
-            child: SpinKitFadingCircle(
-              color: const Color(0xFF1DB954),
-              size: 50,
-            ),
-          )
-              : currentUser == null
-              ? Center(
-            child: Text(
-              'Please log in',
-              style: GoogleFonts.poppins(
-                color: Colors.white54,
-                fontSize: 18,
-                textStyle: Theme.of(context).textTheme.bodyLarge,
-              ),
-            ),
-          )
-              : Column(
+      backgroundColor: const Color(0xFF121212),
+      body: SafeArea(
+        child: isLoading
+            ? const Center(child: SpinKitThreeBounce(color: Color(0xFFCE93D8), size: 24))
+            : SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppBar(
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                title: Text(
-                  'Profile',
-                  style: GoogleFonts.poppins(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    textStyle: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                leading: IconButton(
-                  icon: const Icon(
-                    Icons.arrow_back,
-                    color: Color(0xFF1DB954),
-                  ),
-                  onPressed: () => Navigator.pop(context),
+              Text(
+                'Profile',
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 32,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      FadeInDown(
-                        duration: const Duration(milliseconds: 600),
-                        child: Text(
-                          'Email: ${currentUser!.email}',
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            textStyle: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      FadeInUp(
-                        duration: const Duration(milliseconds: 600),
-                        child: TextField(
-                          controller: _usernameController,
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontSize: 16,
-                            textStyle: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Username',
-                            labelStyle: GoogleFonts.poppins(
-                              color: Colors.white54,
-                              textStyle: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white.withOpacity(0.1),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 18,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      FadeInUp(
-                        duration: const Duration(milliseconds: 600),
-                        child: TextField(
-                          controller: _passwordController,
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontSize: 16,
-                            textStyle: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                          obscureText: true,
-                          decoration: InputDecoration(
-                            labelText: 'New Password (optional)',
-                            labelStyle: GoogleFonts.poppins(
-                              color: Colors.white54,
-                              textStyle: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white.withOpacity(0.1),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 18,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 30),
-                      FadeInUp(
-                        duration: const Duration(milliseconds: 600),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF1DB954), Color(0xFF17A14A)],
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: ElevatedButton(
-                            onPressed: _updateProfile,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              shadowColor: Colors.transparent,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 14,
-                              ),
-                            ),
-                            child: Text(
-                              'Update Profile',
-                              style: GoogleFonts.poppins(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                textStyle: Theme.of(context).textTheme.labelLarge,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      FadeInUp(
-                        duration: const Duration(milliseconds: 600),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Colors.redAccent, Color(0xFFD32F2F)],
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: ElevatedButton(
-                            onPressed: _logout,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              shadowColor: Colors.transparent,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 14,
-                              ),
-                            ),
-                            child: Text(
-                              'Logout',
-                              style: GoogleFonts.poppins(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                textStyle: Theme.of(context).textTheme.labelLarge,
-                              ),
-                            ),
-                          ),
-                        ),
+              const SizedBox(height: 20),
+              if (currentUser != null) ...[
+                Text(
+                  'Email: ${currentUser!.email}',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white54,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: _usernameController,
+                  style: GoogleFonts.poppins(color: Colors.white),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: const Color(0xFF1E1E1E),
+                    hintText: 'Username',
+                    hintStyle: GoogleFonts.poppins(color: Colors.white54),
+                    prefixIcon: const Icon(Icons.person, color: Color(0xFFCE93D8)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _passwordController,
+                  style: GoogleFonts.poppins(color: Colors.white),
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: const Color(0xFF1E1E1E),
+                    hintText: 'New Password (leave blank to keep current)',
+                    hintStyle: GoogleFonts.poppins(color: Colors.white54),
+                    prefixIcon: const Icon(Icons.lock, color: Color(0xFFCE93D8)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFCE93D8), Color(0xFF8E24AA)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
                       ),
                     ],
                   ),
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : _updateProfile,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      minimumSize: const Size(double.infinity, 0),
+                    ),
+                    child: Text(
+                      'Update Profile',
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Allow others to share',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                    Switch(
+                      value: allowSharing,
+                      activeColor: const Color(0xFFCE93D8),
+                      onChanged: (value) => _toggleSharing(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFCE93D8), Color(0xFF8E24AA)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : _logout,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      minimumSize: const Size(double.infinity, 0),
+                    ),
+                    child: Text(
+                      'Logout',
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Colors.redAccent, Color(0xFFD32F2F)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : _deleteAccount,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      minimumSize: const Size(double.infinity, 0),
+                    ),
+                    child: Text(
+                      'Delete Account',
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -449,7 +495,7 @@ class _ProfilePageState extends State<ProfilePage> {
         currentIndex: _selectedIndex,
         onTap: _onNavBarTapped,
         backgroundColor: const Color(0xFF1E1E1E),
-        selectedItemColor: const Color(0xFF1DB954),
+        selectedItemColor: const Color(0xFFCE93D8),
         unselectedItemColor: Colors.white54,
         items: const [
           BottomNavigationBarItem(

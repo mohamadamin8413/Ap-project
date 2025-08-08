@@ -52,7 +52,7 @@ class SocketService {
   final String host;
   final int port;
 
-  SocketService({this.host = '10.178.42.60', this.port = 12345});
+  SocketService({this.host = '192.168.43.60', this.port = 12345});
 
   bool get isConnected => _socket != null;
 
