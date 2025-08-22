@@ -10,7 +10,6 @@ environment:
 dependencies:
     flutter:
         sdk: flutter
-
     just_audio: ^0.9.38
     cupertino_icons: ^1.0.8
     file_picker: ^8.0.3
@@ -18,17 +17,25 @@ dependencies:
     local_auth: ^2.2.0
     fluttertoast: ^8.2.4
     shared_preferences: ^2.2.2
+    audio_metadata_reader: ^1.4.2
     email_validator: ^2.1.17
     google_fonts: ^6.2.1
     animate_do: ^3.3.4
     flutter_spinkit: ^5.2.1
     lottie: ^3.1.2
     id3: ^1.0.2
+    permission_handler: ^11.3.1
 
 dev_dependencies:
+    flutter_launcher_icons: ^0.13.1
     flutter_test:
         sdk: flutter
     flutter_lints: ^3.0.1
+
+flutter_icons:
+    android: true
+    ios: true
+    image_path: "assets/icon/LOGO.png"
 
 flutter:
     uses-material-design: true

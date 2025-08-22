@@ -1,33 +1,34 @@
-import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
+import 'package:projectap/Homepage.dart';
+import 'package:projectap/Signscreen.dart';
+import 'package:projectap/User.dart';
 import 'package:projectap/appstorage.dart';
 import 'package:projectap/apiservice.dart';
-import 'package:projectap/Signscreen.dart';
-import 'package:projectap/Homepage.dart';
-import 'package:projectap/User.dart';
 
 AppStorage storage = AppStorage();
 
-class Screen2 extends StatefulWidget {
-  const Screen2({super.key});
+class SignUpScreen extends StatefulWidget {
+  const SignUpScreen({super.key});
 
   @override
-  State<Screen2> createState() => _Screen2State();
+  State<SignUpScreen> createState() => _SignUpScreenState();
 }
 
-class _Screen2State extends State<Screen2> {
-  final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _usernameController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-  bool showPassword = false;
-  bool showConfirmPassword = false;
+class _SignUpScreenState extends State<SignUpScreen> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmPasswordController = TextEditingController();
   bool isLoading = false;
   final SocketService _socketService = SocketService();
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLoggedInUser();
+  }
 
   @override
   void dispose() {
@@ -39,150 +40,97 @@ class _Screen2State extends State<Screen2> {
     super.dispose();
   }
 
-  String? passwordValidator(String? value) {
-    final email = _emailController.text.trim();
-    if (value == null || value.isEmpty) return 'Password cannot be empty';
-    if (value.length < 8) return 'At least 8 characters required';
-    if (!RegExp(r'[A-Z]').hasMatch(value)) return 'Include one uppercase letter';
-    if (!RegExp(r'[a-z]').hasMatch(value)) return 'Include one lowercase letter';
-    if (!RegExp(r'\d').hasMatch(value)) return 'Include one number';
-    if (email.isNotEmpty && value.contains(email)) return 'Password must not contain email';
-    return null;
+  Future<void> _checkLoggedInUser() async {
+    final user = await storage.loadCurrentUser();
+    if (user != null && mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const MusicHomePage()),
+      );
+    }
   }
 
-  Future<void> _register() async {
-    if (!mounted) return;
-    setState(() => isLoading = true);
-
+  Future<void> _signUp() async {
     final email = _emailController.text.trim();
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
     final confirmPassword = _confirmPasswordController.text.trim();
 
-    if (_formKey.currentState!.validate()) {
-      if (password != confirmPassword) {
-        _showMessage("Passwords do not match", error: true);
-        setState(() => isLoading = false);
-        return;
-      }
+    if (email.isEmpty || username.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+      _showMessage('Please fill in all fields', error: true);
+      return;
+    }
 
-      try {
-        await storage.init();
-        final request = SocketRequest(
-          action: "register",
-          data: {
-            "email": email,
-            "username": username,
-            "password": password,
-          },
-        );
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
+      _showMessage('Please enter a valid email address', error: true);
+      return;
+    }
 
-        final response = await _socketService.send(request);
-        print('Register response: ${response.toJson()}');
+    if (password != confirmPassword) {
+      _showMessage('Passwords do not match', error: true);
+      return;
+    }
 
-        if (response.isSuccess && response.data != null) {
-          _showMessage("Registration successful");
-          final userData = response.data as Map<String, dynamic>;
-          final user = User.fromJson(userData);
-          await storage.saveCurrentUser(user);
+    if (password.length < 6) {
+      _showMessage('Password must be at least 6 characters', error: true);
+      return;
+    }
 
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const MusicHomePage()),
-            );
-          }
-        } else {
-          _showMessage(response.data == null ? "No user data received" : response.message, error: true);
+    setState(() => isLoading = true);
+    try {
+      final request = SocketRequest(
+        action: 'signup',
+        data: {
+          'email': email,
+          'username': username,
+          'password': password,
+        },
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+      print('Sending signup request: ${request.toJson()}');
+      final response = await _socketService.send(request);
+      print('Response for signup: ${response.toJson()}');
+      if (response.isSuccess && response.data != null) {
+        final user = User.fromJson(response.data as Map<String, dynamic>);
+        await storage.saveCurrentUser(user);
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const MusicHomePage()),
+          );
         }
-      } on SocketException catch (e) {
-        _showMessage("Connection error: ${e.message}", error: true);
-        print('SocketException: $e');
-      } on TimeoutException {
-        _showMessage("Request timed out", error: true);
-        print('TimeoutException');
-      } catch (e) {
-        _showMessage("Registration failed: ${e.toString()}", error: true);
-        print('Register error: $e');
-      } finally {
-        if (mounted) setState(() => isLoading = false);
+        _showMessage('Sign-up successful');
+      } else {
+        _showMessage('Sign-up failed: ${response.message}', error: true);
       }
-    } else {
-      setState(() => isLoading = false);
+    } catch (e) {
+      print('Error during sign-up: $e');
+      _showMessage('Error during sign-up: $e', error: true);
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
   void _showMessage(String message, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          message,
-          style: GoogleFonts.poppins(color: Colors.white, fontSize: 14),
-          textAlign: TextAlign.center,
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            message,
+            style: GoogleFonts.poppins(color: Colors.white, fontSize: 14),
+            textAlign: TextAlign.center,
+          ),
+          backgroundColor: error ? Colors.redAccent : const Color(0xFFCE93D8),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          duration: const Duration(seconds: 3),
+          elevation: 10,
         ),
-        backgroundColor: error ? Colors.redAccent : const Color(0xFFCE93D8),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        duration: const Duration(seconds: 3),
-        elevation: 10,
-      ),
-    );
-  }
-
-  Widget _buildInputField({
-    required String hint,
-    required IconData icon,
-    required TextEditingController controller,
-    bool obscureText = false,
-    bool isPassword = false,
-    VoidCallback? onToggle,
-    String? Function(String?)? validator,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: TextFormField(
-        controller: controller,
-        obscureText: obscureText,
-        keyboardType: keyboardType,
-        validator: validator,
-        style: GoogleFonts.poppins(color: Colors.white, fontSize: 16),
-        decoration: InputDecoration(
-          prefixIcon: Icon(icon, color: const Color(0xFFCE93D8)),
-          suffixIcon: isPassword
-              ? IconButton(
-            icon: Icon(
-              obscureText ? Icons.visibility_off : Icons.visibility,
-              color: const Color(0xFFCE93D8),
-            ),
-            onPressed: onToggle,
-          )
-              : null,
-          hintText: hint,
-          hintStyle: GoogleFonts.poppins(color: Colors.white54),
-          filled: true,
-          fillColor: const Color(0xFF1E1E1E),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-          enabledBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.redAccent),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.redAccent, width: 2),
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-      ),
-    );
+      );
+    }
   }
 
   @override
@@ -190,122 +138,157 @@ class _Screen2State extends State<Screen2> {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: isLoading
+            ? const Center(
+          child: SpinKitWaveSpinner(
+            color: Color(0xFFCE93D8),
+            size: 50,
+            waveColor: Color(0xFF8E24AA),
+          ),
+        )
+            : SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  Icons.person_add_alt_1,
-                  size: 80,
-                  color: Color(0xFFCE93D8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Create Account',
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 32,
+                  fontWeight: FontWeight.w700,
                 ),
-                const SizedBox(height: 20),
-                Text(
-                  'Create Account',
-                  style: GoogleFonts.poppins(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.w700,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Join us to start your music journey',
+                style: GoogleFonts.poppins(
+                  color: Colors.white54,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 40),
+              TextField(
+                controller: _emailController,
+                style: GoogleFonts.poppins(color: Colors.white),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: const Color(0xFF2A2A2A),
+                  hintText: 'Email',
+                  hintStyle: GoogleFonts.poppins(color: Colors.white54),
+                  prefixIcon: const Icon(Icons.email, color: Color(0xFFCE93D8)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Join us to explore music',
-                  style: GoogleFonts.poppins(
-                    color: Colors.white70,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w400,
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _usernameController,
+                style: GoogleFonts.poppins(color: Colors.white),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: const Color(0xFF2A2A2A),
+                  hintText: 'Username',
+                  hintStyle: GoogleFonts.poppins(color: Colors.white54),
+                  prefixIcon: const Icon(Icons.person, color: Color(0xFFCE93D8)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
                   ),
                 ),
-                const SizedBox(height: 40),
-                _buildInputField(
-                  hint: "Email",
-                  icon: Icons.email_outlined,
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return 'Email cannot be empty';
-                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w]{2,4}$').hasMatch(value)) {
-                      return 'Enter a valid email';
-                    }
-                    return null;
-                  },
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _passwordController,
+                style: GoogleFonts.poppins(color: Colors.white),
+                obscureText: true,
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: const Color(0xFF2A2A2A),
+                  hintText: 'Password',
+                  hintStyle: GoogleFonts.poppins(color: Colors.white54),
+                  prefixIcon: const Icon(Icons.lock, color: Color(0xFFCE93D8)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
+                  ),
                 ),
-                _buildInputField(
-                  hint: "Username",
-                  icon: Icons.person,
-                  controller: _usernameController,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return 'Username cannot be empty';
-                    if (value.length < 3) return 'Username must be at least 3 characters';
-                    return null;
-                  },
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _confirmPasswordController,
+                style: GoogleFonts.poppins(color: Colors.white),
+                obscureText: true,
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: const Color(0xFF2A2A2A),
+                  hintText: 'Confirm Password',
+                  hintStyle: GoogleFonts.poppins(color: Colors.white54),
+                  prefixIcon: const Icon(Icons.lock, color: Color(0xFFCE93D8)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
+                  ),
                 ),
-                _buildInputField(
-                  hint: "Password",
-                  icon: Icons.lock_outline,
-                  controller: _passwordController,
-                  obscureText: !showPassword,
-                  isPassword: true,
-                  onToggle: () => setState(() => showPassword = !showPassword),
-                  validator: passwordValidator,
-                ),
-                _buildInputField(
-                  hint: "Confirm Password",
-                  icon: Icons.lock_reset_outlined,
-                  controller: _confirmPasswordController,
-                  obscureText: !showConfirmPassword,
-                  isPassword: true,
-                  onToggle: () => setState(() => showConfirmPassword = !showConfirmPassword),
-                  validator: (val) {
-                    if (val == null || val.isEmpty) return 'Confirm your password';
-                    if (val != _passwordController.text) return 'Passwords do not match';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24),
-                Container(
+              ),
+              const SizedBox(height: 24),
+              GestureDetector(
+                onTap: isLoading ? null : _signUp,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [Color(0xFFCE93D8), Color(0xFF8E24AA)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.3),
-                        blurRadius: 10,
+                        blurRadius: 8,
                         offset: const Offset(0, 4),
                       ),
                     ],
                   ),
-                  child: ElevatedButton(
-                    onPressed: isLoading
-                        ? null
-                        : () {
-                      if (_formKey.currentState!.validate()) {
-                        _register();
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      minimumSize: const Size(double.infinity, 0),
-                    ),
-                    child: isLoading
-                        ? const SpinKitThreeBounce(
-                      color: Colors.white,
-                      size: 24,
-                    )
-                        : Text(
+                  child: Center(
+                    child: Text(
                       'Sign Up',
                       style: GoogleFonts.poppins(
                         fontSize: 18,
@@ -315,34 +298,37 @@ class _Screen2State extends State<Screen2> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'Already have an account? ',
-                      style: GoogleFonts.poppins(color: Colors.white70, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Already have an account? ',
+                    style: GoogleFonts.poppins(
+                      color: Colors.white54,
+                      fontSize: 14,
                     ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(builder: (_) => const Screen1()),
-                        );
-                      },
-                      child: Text(
-                        'Sign In',
-                        style: GoogleFonts.poppins(
-                          color: const Color(0xFFCE93D8),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (context) => const Screen1()),
+                      );
+                    },
+                    child: Text(
+                      'Sign In',
+                      style: GoogleFonts.poppins(
+                        color: const Color(0xFFCE93D8),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ],
-                ),
-              ],
-            ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),

@@ -3,12 +3,14 @@ class Music {
   final String title;
   final String artist;
   final String filePath;
+  final String? coverPath; // مسیر کاور
 
   Music({
     required this.id,
     required this.title,
     required this.artist,
     required this.filePath,
+    this.coverPath,
   });
 
   factory Music.fromJson(Map<String, dynamic> json) {
@@ -17,6 +19,7 @@ class Music {
       title: json['title'],
       artist: json['artist'],
       filePath: json['filePath'],
+      coverPath: json['coverPath'],
     );
   }
 
@@ -25,5 +28,6 @@ class Music {
     'title': title,
     'artist': artist,
     'filePath': filePath,
+    'coverPath': coverPath,
   };
 }

@@ -1,19 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_spinkit/flutter_spinkit.dart';
+
+import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_spinkit/flutter_spinkit.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:projectap/PlaylistPage.dart';
+import 'package:projectap/ProfilePage.dart';
 import 'package:projectap/Song.dart';
 import 'package:projectap/User.dart';
-import 'package:projectap/appstorage.dart';
 import 'package:projectap/apiservice.dart';
+import 'package:projectap/appstorage.dart';
 import 'package:projectap/playermusicpage.dart';
-import 'package:projectap/ProfilePage.dart';
-import 'package:projectap/PlaylistPage.dart';
-import 'package:id3/id3.dart';
 
 AppStorage storage = AppStorage();
 
@@ -28,6 +29,7 @@ class Homepagesong {
   final String? uploaderEmail;
   final bool isFromServer;
   final DateTime addedAt;
+  final String? coverPath;
 
   Homepagesong({
     required this.id,
@@ -38,6 +40,7 @@ class Homepagesong {
     this.uploaderEmail,
     this.isFromServer = false,
     required this.addedAt,
+    this.coverPath,
   });
 
   factory Homepagesong.fromJson(Map<String, dynamic> json) {
@@ -55,8 +58,9 @@ class Homepagesong {
       filePath: json['filePath'] as String? ?? '',
       localPath: json['localPath'] as String?,
       uploaderEmail: json['uploaderEmail'] as String?,
-      isFromServer: json['uploaderEmail'] == null || json['uploaderEmail'] == '',
+      isFromServer: json['uploaderEmail'] != null && json['uploaderEmail'] != '',
       addedAt: addedAt,
+      coverPath: json['coverPath'] as String?,
     );
   }
 
@@ -69,6 +73,7 @@ class Homepagesong {
     'uploaderEmail': uploaderEmail,
     'isFromServer': isFromServer,
     'addedAt': addedAt.toIso8601String(),
+    'coverPath': coverPath,
   };
 }
 
@@ -82,24 +87,44 @@ class MusicHomePage extends StatefulWidget {
 class _MusicHomePageState extends State<MusicHomePage> {
   List<Homepagesong> userSongs = [];
   List<Music> serverSongs = [];
+  List<String> _likedSongTitles = [];
+  final StreamController<List<String>> _likedSongsStreamController = StreamController<List<String>>.broadcast();
   final TextEditingController searchController = TextEditingController();
   SortType currentSort = SortType.date;
   bool isAscending = true;
   bool isLoading = false;
+  bool _isLoadingLikedSongs = false;
   User? currentUser;
   int _selectedIndex = 0;
+  final SocketService _socketService = SocketService();
 
   @override
   void initState() {
     super.initState();
     _loadCurrentUser();
     searchController.addListener(_onSearchChanged);
+    _likedSongsStreamController.stream.listen(
+          (likedSongs) {
+        print('Stream updated with liked songs: $likedSongs');
+        setState(() {
+          _likedSongTitles = likedSongs;
+        });
+      },
+      onError: (error) {
+        print('Stream error: $error');
+        _showMessage('Stream error: $error', error: true);
+      },
+    );
   }
 
   @override
   void dispose() {
     searchController.removeListener(_onSearchChanged);
     searchController.dispose();
+    _socketService.close();
+    if (!_likedSongsStreamController.isClosed) {
+      _likedSongsStreamController.close();
+    }
     super.dispose();
   }
 
@@ -113,6 +138,91 @@ class _MusicHomePageState extends State<MusicHomePage> {
     }
   }
 
+  Future<void> _loadLikedSongs() async {
+    if (currentUser == null || _isLoadingLikedSongs) {
+      print('Skipping _loadLikedSongs: user is null or already loading');
+      return;
+    }
+    _isLoadingLikedSongs = true;
+    try {
+      print('Loading liked songs for user: ${currentUser!.email}');
+      final request = SocketRequest(
+        action: 'list_liked_music',
+        data: {'email': currentUser!.email},
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+      final response = await _socketService.send(request);
+      print('Response for list_liked_music: ${response.toJson()}');
+      if (response.isSuccess && response.data != null) {
+        final likedSongs = (response.data as List<dynamic>)
+            .where((json) => json['title'] != null && json['title'] is String)
+            .map((json) => (json['title'] as String).trim())
+            .toList();
+        if (!_likedSongsStreamController.isClosed) {
+          _likedSongsStreamController.add(likedSongs);
+        }
+        print('Loaded liked songs: $likedSongs');
+      } else {
+        print('Failed to load liked songs: ${response.message}');
+        _showMessage('Failed to load liked songs: ${response.message}', error: true);
+      }
+    } catch (e) {
+      print('Error loading liked songs: $e');
+      _showMessage('Error loading liked songs: $e', error: true);
+    } finally {
+      _isLoadingLikedSongs = false;
+    }
+  }
+
+  Future<void> _toggleLike(Homepagesong song) async {
+    if (currentUser == null) {
+      print('No user logged in');
+      _showMessage('Please log in to like songs', error: true);
+      return;
+    }
+
+    final isCurrentlyLiked = _likedSongTitles.contains(song.title.trim());
+    final updatedLikedSongs = List<String>.from(_likedSongTitles);
+    if (isCurrentlyLiked) {
+      updatedLikedSongs.remove(song.title.trim());
+    } else {
+      updatedLikedSongs.add(song.title.trim());
+    }
+    print('Updating UI with liked songs: $updatedLikedSongs');
+    if (!_likedSongsStreamController.isClosed) {
+      _likedSongsStreamController.add(updatedLikedSongs);
+    }
+
+    try {
+      final request = SocketRequest(
+        action: isCurrentlyLiked ? 'unlike_music' : 'like_music',
+        data: {
+          'email': currentUser!.email,
+          'music_name': song.title,
+        },
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+      print('Sending ${isCurrentlyLiked ? 'unlike' : 'like'} request: ${request.toJson()}');
+      final response = await _socketService.send(request);
+      print('Response for ${isCurrentlyLiked ? 'unlike' : 'like'}: ${response.toJson()}');
+      if (response.isSuccess) {
+        _showMessage(isCurrentlyLiked ? 'Song unliked' : 'Song liked');
+        await _loadLikedSongs();
+      } else {
+        if (!_likedSongsStreamController.isClosed) {
+          _likedSongsStreamController.add(_likedSongTitles);
+        }
+        _showMessage('Failed to ${isCurrentlyLiked ? 'unlike' : 'like'} song: ${response.message}', error: true);
+      }
+    } catch (e) {
+      if (!_likedSongsStreamController.isClosed) {
+        _likedSongsStreamController.add(_likedSongTitles);
+      }
+      print('Error toggling like: $e');
+      _showMessage('Error toggling like: $e', error: true);
+    }
+  }
+
   Future<void> _refreshData() async {
     setState(() => isLoading = true);
     try {
@@ -120,7 +230,12 @@ class _MusicHomePageState extends State<MusicHomePage> {
         _loadUserSongs(),
         _loadServerSongs(),
       ]);
+      for (final song in userSongs) {
+        await _autoDownloadSong(song);
+      }
+      await _loadLikedSongs();
     } catch (e) {
+      print('Error refreshing data: $e');
       _showMessage('Error refreshing data: $e', error: true);
     } finally {
       setState(() => isLoading = false);
@@ -134,37 +249,55 @@ class _MusicHomePageState extends State<MusicHomePage> {
       final request = SocketRequest(
         action: 'list_user_musics',
         data: {'email': currentUser!.email},
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
       );
-      final response = await SocketService().send(request);
+      final response = await _socketService.send(request);
+      print('Response for list_user_musics: ${response.toJson()}');
       if (response.isSuccess && response.data != null) {
         setState(() {
           userSongs = (response.data as List<dynamic>)
+              .where((json) => json['id'] != null && json['title'] != null && json['filePath'] != null)
               .map((json) {
             String? localPath;
-            if (json['uploaderEmail'] == currentUser!.email) {
-              localPath = '${appDir.path}/${json['title']}.mp3';
-              if (!File(localPath).existsSync()) {
-                localPath = null; // فایل محلی وجود ندارد، دانلود لازم است
+            final expectedPath = '${appDir.path}/${json['title']}.mp3';
+            if (File(expectedPath).existsSync()) {
+              localPath = expectedPath;
+            }
+            String? coverPath;
+            final possibleCoverNames = [
+              if (json['coverPath'] != null) json['coverPath'],
+              '${json['title']}-cover.jpg',
+              'cover_${json['title']}.jpg',
+            ];
+            for (final coverName in possibleCoverNames) {
+              final coverFile = File('${appDir.path}/$coverName');
+              if (coverFile.existsSync()) {
+                coverPath = coverFile.path;
+                print('Found cover for ${json['title']}: $coverPath');
+                break;
               }
             }
             return Homepagesong.fromJson({
               'id': json['id'],
-              'title': json['title'],
+              'title': (json['title'] as String).trim(),
               'artist': json['artist'] ?? 'Unknown',
               'filePath': json['filePath'],
               'uploaderEmail': json['uploaderEmail'],
-              'isFromServer': json['uploaderEmail'] == null || json['uploaderEmail'] == '',
+              'isFromServer': json['uploaderEmail'] != null && json['uploaderEmail'] != currentUser!.email,
               'addedAt': json['addedAt'] ?? DateTime.now().toIso8601String(),
               'localPath': localPath,
+              'coverPath': coverPath,
             });
           })
               .toList();
           _sortSongs();
         });
       } else {
+        print('Failed to load user songs: ${response.message}');
         _showMessage('Failed to load user songs: ${response.message}', error: true);
       }
     } catch (e) {
+      print('Error loading songs: $e');
       _showMessage('Error loading songs: $e', error: true);
     }
   }
@@ -174,99 +307,320 @@ class _MusicHomePageState extends State<MusicHomePage> {
       final request = SocketRequest(
         action: 'list_server_musics',
         data: {},
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
       );
-      final response = await SocketService().send(request);
+      final response = await _socketService.send(request);
+      print('Response for list_server_musics: ${response.toJson()}');
       if (response.isSuccess && response.data != null) {
         setState(() {
           serverSongs = (response.data as List<dynamic>)
+              .where((json) => json['id'] != null && json['title'] != null && json['filePath'] != null)
               .map((json) => Music.fromJson(json))
               .toList();
         });
       } else {
+        print('Failed to load server songs: ${response.message}');
         _showMessage('Failed to load server songs: ${response.message}', error: true);
       }
     } catch (e) {
+      print('Error loading server songs: $e');
       _showMessage('Error loading server songs: $e', error: true);
     }
   }
 
-  void _onSearchChanged() {
-    setState(() {
-      _sortSongs();
-    });
+  Future<List<Map<String, String>>> _loadUsers() async {
+    if (currentUser == null) {
+      print('No user logged in for loading users');
+      _showMessage('Please log in to load users', error: true);
+      return [];
+    }
+    try {
+      final request = SocketRequest(
+        action: 'list_users',
+        data: {},
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+      final response = await _socketService.send(request);
+      print('Response for list_users: ${response.toJson()}');
+      if (response.isSuccess && response.data != null) {
+        final users = (response.data as List<dynamic>)
+            .where((json) => json['email'] != null && json['email'] is String && json['email'] != currentUser!.email)
+            .map((json) => {
+          'email': json['email'] as String,
+          'username': json['username'] as String? ?? 'Unknown',
+        })
+            .toList();
+        print('Loaded users: $users');
+        if (users.isEmpty) {
+          _showMessage('No users available for sharing', error: true);
+        }
+        return users;
+      } else {
+        print('Failed to load users: ${response.message}');
+        _showMessage('Failed to load users: ${response.message}', error: true);
+        return [];
+      }
+    } catch (e) {
+      print('Error loading users: $e');
+      _showMessage('Error loading users: $e', error: true);
+      return [];
+    }
   }
 
-  void _sortSongs() {
-    final query = searchController.text.toLowerCase();
-    List<Homepagesong> filteredSongs = userSongs.where((song) {
-      return song.title.toLowerCase().contains(query) || song.artist.toLowerCase().contains(query);
-    }).toList();
-
-    if (currentSort == SortType.name) {
-      filteredSongs.sort((a, b) => isAscending ? a.title.compareTo(b.title) : b.title.compareTo(a.title));
-    } else {
-      filteredSongs.sort((a, b) => isAscending ? a.addedAt.compareTo(b.addedAt) : b.addedAt.compareTo(a.addedAt));
+  Future<void> _autoDownloadSong(Homepagesong song) async {
+    if (song.localPath != null && File(song.localPath!).existsSync()) {
+      print('Song ${song.title} already exists locally at ${song.localPath}');
+      return;
     }
-    setState(() {
-      userSongs = filteredSongs;
-    });
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final localFile = File('${dir.path}/${song.title}.mp3');
+      final request = SocketRequest(
+        action: 'download_music',
+        data: {'name': song.title, 'email': currentUser!.email},
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+      final response = await _socketService.send(request);
+      print('Response for download_music: ${response.toJson()}');
+      if (response.isSuccess && response.data != null) {
+        final String base64File = response.data['file'] as String;
+        final bytes = base64Decode(base64File);
+        await localFile.writeAsBytes(bytes);
+        String? coverPath;
+        if (response.data['cover'] != null && response.data['cover'].toString().isNotEmpty) {
+          try {
+            final String base64Cover = response.data['cover'] as String;
+            final coverBytes = base64Decode(base64Cover);
+            final coverFile = File('${dir.path}/${song.title}-cover.jpg');
+            await coverFile.writeAsBytes(coverBytes);
+            coverPath = coverFile.path;
+            print('Cover saved for ${song.title} at $coverPath');
+          } catch (e) {
+            print('Error saving cover for ${song.title}: $e');
+            _showMessage('Error saving cover for ${song.title}: $e', error: true);
+          }
+        } else {
+          print('No cover provided for ${song.title}');
+        }
+        setState(() {
+          final index = userSongs.indexWhere((s) => s.id == song.id);
+          if (index != -1) {
+            userSongs[index] = Homepagesong(
+              id: song.id,
+              title: song.title,
+              artist: song.artist,
+              filePath: song.filePath,
+              localPath: localFile.path,
+              uploaderEmail: song.uploaderEmail,
+              isFromServer: song.isFromServer,
+              addedAt: song.addedAt,
+              coverPath: coverPath ?? song.coverPath,
+            );
+            print('Updated song ${song.title} with localPath: ${localFile.path}, coverPath: $coverPath');
+          }
+        });
+      } else {
+        print('Failed to download song ${song.title}: ${response.message}');
+        _showMessage('Failed to download song: ${response.message}', error: true);
+      }
+    } catch (e) {
+      print('Error downloading song ${song.title}: $e');
+      _showMessage('Error downloading song: $e', error: true);
+    }
+  }
+
+  Future<void> _shareSong(Homepagesong song) async {
+    if (currentUser == null) {
+      print('No user logged in');
+      _showMessage('Please log in to share songs', error: true);
+      return;
+    }
+    final users = await _loadUsers();
+    if (users.isEmpty) {
+      print('No users available for sharing');
+      _showMessage('No users available for sharing', error: true);
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Share Song: ${song.title}',
+          style: GoogleFonts.poppins(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 200,
+          child: ListView.builder(
+            itemCount: users.length,
+            itemBuilder: (context, index) {
+              final user = users[index];
+              return ListTile(
+                title: Text(
+                  user['username']!,
+                  style: GoogleFonts.poppins(color: Colors.white),
+                ),
+                subtitle: Text(
+                  user['email']!,
+                  style: GoogleFonts.poppins(color: Colors.white54),
+                ),
+                onTap: () async {
+                  Navigator.pop(context);
+                  setState(() => isLoading = true);
+                  try {
+                    final request = SocketRequest(
+                      action: 'share_music',
+                      data: {
+                        'email': currentUser!.email,
+                        'target_email': user['email'],
+                        'music_name': song.title,
+                      },
+                      requestId: DateTime.now().millisecondsSinceEpoch.toString(),
+                    );
+                    print('Sending share_music request: ${request.toJson()}');
+                    final response = await _socketService.send(request);
+                    print('Response for share_music: ${response.toJson()}');
+                    if (response.isSuccess) {
+                      _showMessage('Song shared successfully with ${user['username']}');
+                    } else {
+                      _showMessage('Failed to share song: ${response.message}', error: true);
+                    }
+                  } catch (e) {
+                    print('Error sharing song: $e');
+                    _showMessage('Error sharing song: $e', error: true);
+                  } finally {
+                    setState(() => isLoading = false);
+                  }
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(color: const Color(0xFFCE93D8)),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _addLocalSong() async {
+    if (currentUser == null) {
+      _showMessage('Please log in first', error: true);
+      return;
+    }
+
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.audio,
-      );
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
-        final bytes = await file.readAsBytes();
-        final base64File = base64Encode(bytes);
-        final mp3 = MP3Instance(file.readAsBytesSync());
-        String title = mp3.getMetaTags()?['Title'] ?? result.files.single.name.replaceAll('.mp3', '');
-        String artist = mp3.getMetaTags()?['Artist'] ?? 'Unknown';
-        if (userSongs.any((song) => song.title == title)) {
-          _showMessage('This song already exists in your library', error: true);
-          return;
-        }
+      setState(() => isLoading = true);
 
-        final dir = await getApplicationDocumentsDirectory();
-        final localFile = File('${dir.path}/$title.mp3');
-        await localFile.writeAsBytes(bytes);
+      // Pick audio file
+      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.audio);
+      if (result == null || result.files.single.path == null) {
+        _showMessage('No file selected', error: true);
+        return;
+      }
 
-        setState(() => isLoading = true);
-        final request = SocketRequest(
-          action: 'add_local_music',
-          data: {
-            'email': currentUser!.email,
-            'title': title,
-            'artist': artist,
-            'file': base64File,
-          },
-        );
-        final response = await SocketService().send(request);
-        if (response.isSuccess) {
-          _showMessage('Song added to your library');
-          setState(() {
-            userSongs.add(Homepagesong(
-              id: response.data != null && response.data['id'] != null ? response.data['id'] : userSongs.length + 1,
-              title: title,
-              artist: artist,
-              filePath: '$title.mp3',
-              localPath: localFile.path,
-              uploaderEmail: currentUser!.email,
-              isFromServer: false,
-              addedAt: DateTime.now(),
-            ));
-            _sortSongs();
-          });
-        } else {
-          _showMessage('Failed to add song: ${response.message}', error: true);
-          await localFile.delete();
+      final file = File(result.files.single.path!);
+      if (!await file.exists()) {
+        _showMessage('Selected file does not exist', error: true);
+        return;
+      }
+
+      // Read metadata
+      final metadata = await readMetadata(file);
+      final title = (metadata?.title?.trim().isNotEmpty ?? false)
+          ? metadata!.title!.trim()
+          : result.files.single.name.replaceAll('.mp3', '');
+      final artist = (metadata?.artist?.trim().isNotEmpty ?? false) ? metadata!.artist!.trim() : 'Unknown Artist';
+
+      // Check for duplicates
+      if (userSongs.any((song) => song.title.trim() == title)) {
+        _showMessage('This song already exists in your library', error: true);
+        return;
+      }
+
+      // Encode cover if exists
+      String? coverBase64;
+      if (metadata != null && metadata.pictures.isNotEmpty) {
+        try {
+          coverBase64 = base64Encode(metadata.pictures.first.bytes);
+          print('Cover metadata found for $title');
+        } catch (e) {
+          print('Error encoding cover for $title: $e');
         }
       } else {
-        _showMessage('No file selected', error: true);
+        print('No cover metadata found for $title');
+      }
+
+      final bytes = await file.readAsBytes();
+      final fileBase64 = base64Encode(bytes);
+
+      // Prepare request
+      final request = SocketRequest(
+        action: 'add_local_music',
+        data: {
+          'email': currentUser!.email,
+          'title': title,
+          'artist': artist,
+          'file': fileBase64,
+          'cover': coverBase64 ?? '',
+        },
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+
+      final response = await _socketService.send(request);
+      print('Response for add_local_music: ${response.toJson()}');
+
+      if (response.isSuccess && response.data != null) {
+        final data = response.data as Map<String, dynamic>;
+        final dir = await getApplicationDocumentsDirectory();
+        final localFile = File('${dir.path}/${data['filePath'] ?? '$title.mp3'}');
+        await localFile.writeAsBytes(bytes);
+
+        String? coverPath;
+        if (data.containsKey('cover') && data['cover'] != null && data['cover'].toString().isNotEmpty) {
+          try {
+            final coverBytes = base64Decode(data['cover'] as String);
+            final coverFile = File('${dir.path}/${title}-cover.jpg');
+            await coverFile.writeAsBytes(coverBytes);
+            coverPath = coverFile.path;
+            print('Cover saved for $title at $coverPath');
+          } catch (e) {
+            print('Error saving cover from server for $title: $e');
+            _showMessage('Error saving cover: $e', error: true);
+          }
+        } else {
+          print('No cover returned from server for $title');
+        }
+
+        _showMessage('Song added successfully');
+
+        setState(() {
+          userSongs.add(Homepagesong(
+            id: data['id'] ?? userSongs.length + 1,
+            title: title,
+            artist: artist,
+            filePath: data['filePath'] ?? '',
+            localPath: localFile.path,
+            uploaderEmail: currentUser!.email,
+            isFromServer: false,
+            addedAt: DateTime.now(),
+            coverPath: coverPath,
+          ));
+          _sortSongs();
+        });
+      } else {
+        _showMessage('Failed to add song: ${response.message}', error: true);
       }
     } catch (e) {
+      print('Error adding local song: $e');
       _showMessage('Error adding local song: $e', error: true);
     } finally {
       setState(() => isLoading = false);
@@ -312,47 +666,18 @@ class _MusicHomePageState extends State<MusicHomePage> {
                         'email': currentUser!.email,
                         'music_name': song.title,
                       },
+                      requestId: DateTime.now().millisecondsSinceEpoch.toString(),
                     );
-                    final response = await SocketService().send(request);
+                    final response = await _socketService.send(request);
+                    print('Response for add_server_music: ${response.toJson()}');
                     if (response.isSuccess) {
                       _showMessage('Server song added successfully');
-                      final downloadRequest = SocketRequest(
-                        action: 'download_music',
-                        data: {
-                          'name': song.title,
-                          'email': currentUser!.email,
-                        },
-                      );
-                      final downloadResponse = await SocketService().send(downloadRequest);
-                      if (downloadResponse.isSuccess && downloadResponse.data != null) {
-                        final data = downloadResponse.data as Map<String, dynamic>;
-                        final String base64File = data['file'] as String;
-                        final bytes = base64Decode(base64File);
-                        final dir = await getApplicationDocumentsDirectory();
-                        final localFile = File('${dir.path}/${song.title}.mp3');
-                        await localFile.writeAsBytes(bytes);
-                        setState(() {
-                          userSongs.add(Homepagesong(
-                            id: response.data != null && response.data['id'] != null
-                                ? response.data['id']
-                                : userSongs.length + 1,
-                            title: song.title,
-                            artist: song.artist,
-                            filePath: song.filePath,
-                            localPath: localFile.path,
-                            uploaderEmail: null,
-                            isFromServer: true,
-                            addedAt: DateTime.now(),
-                          ));
-                          _sortSongs();
-                        });
-                      } else {
-                        _showMessage('Failed to download song: ${downloadResponse.message}', error: true);
-                      }
+                      await _refreshData();
                     } else {
                       _showMessage('Failed to add server song: ${response.message}', error: true);
                     }
                   } catch (e) {
+                    print('Error adding server song: $e');
                     _showMessage('Error adding server song: $e', error: true);
                   } finally {
                     setState(() => isLoading = false);
@@ -362,12 +687,21 @@ class _MusicHomePageState extends State<MusicHomePage> {
             },
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(color: const Color(0xFFCE93D8)),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Future<void> _removeSong(String title) async {
-    if (currentUser == null || title == null) return;
+    if (currentUser == null || title.isEmpty) return;
     setState(() => isLoading = true);
     try {
       final request = SocketRequest(
@@ -376,70 +710,59 @@ class _MusicHomePageState extends State<MusicHomePage> {
           'email': currentUser!.email,
           'music_name': title,
         },
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
       );
-      final response = await SocketService().send(request);
+      final response = await _socketService.send(request);
+      print('Response for remove_user_music: ${response.toJson()}');
       if (response.isSuccess) {
         _showMessage('Song removed successfully');
-        setState(() {
-          userSongs.removeWhere((song) => song.title == title);
-          _sortSongs();
-        });
+        await _refreshData();
       } else {
         _showMessage('Failed to remove song: ${response.message}', error: true);
       }
     } catch (e) {
+      print('Error removing song: $e');
       _showMessage('Error removing song: $e', error: true);
     } finally {
       setState(() => isLoading = false);
     }
   }
 
-  Future<void> _downloadSong(Homepagesong song) async {
-    if (song.localPath != null && File(song.localPath!).existsSync()) {
-      _showMessage('Song already downloaded');
-      return;
+  void _onSearchChanged() {
+    setState(() {
+      _sortSongs();
+    });
+  }
+
+  void _sortSongs() {
+    final query = searchController.text.toLowerCase();
+    List<Homepagesong> filteredSongs = userSongs.where((song) {
+      return song.title.toLowerCase().contains(query) || song.artist.toLowerCase().contains(query);
+    }).toList();
+    if (currentSort == SortType.name) {
+      filteredSongs.sort((a, b) => isAscending ? a.title.compareTo(b.title) : b.title.compareTo(a.title));
+    } else {
+      filteredSongs.sort((a, b) => isAscending ? a.addedAt.compareTo(b.addedAt) : b.addedAt.compareTo(a.addedAt));
     }
-    if (currentUser == null) {
-      _showMessage('User not logged in', error: true);
-      return;
-    }
-    setState(() => isLoading = true);
-    try {
-      final request = SocketRequest(
-        action: 'download_music',
-        data: {
-          'name': song.title,
-          'email': currentUser!.email,
-        },
+    setState(() {
+      userSongs = filteredSongs;
+    });
+  }
+
+  void _onNavBarTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+    if (index == 1) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const PlaylistPage()),
       );
-      final response = await SocketService().send(request);
-      if (response.isSuccess && response.data != null) {
-        final data = response.data as Map<String, dynamic>;
-        final String base64File = data['file'] as String;
-        final bytes = base64Decode(base64File);
-        final dir = await getApplicationDocumentsDirectory();
-        final file = File('${dir.path}/${song.title}.mp3');
-        await file.writeAsBytes(bytes);
-        setState(() {
-          userSongs[userSongs.indexWhere((s) => s.id == song.id)] = Homepagesong(
-            id: song.id,
-            title: song.title,
-            artist: song.artist,
-            filePath: song.filePath,
-            localPath: file.path,
-            uploaderEmail: song.uploaderEmail,
-            isFromServer: song.isFromServer,
-            addedAt: song.addedAt,
-          );
-        });
-        _showMessage('Song downloaded successfully');
-      } else {
-        _showMessage('Failed to download song: ${response.message}', error: true);
-      }
-    } catch (e) {
-      _showMessage('Error downloading song: $e', error: true);
-    } finally {
-      setState(() => isLoading = false);
+    } else if (index == 2) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const ProfilePage()),
+      );
     }
   }
 
@@ -455,27 +778,87 @@ class _MusicHomePageState extends State<MusicHomePage> {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 2),
         elevation: 10,
       ),
     );
   }
 
-  void _onNavBarTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-    if (index == 1) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const PlaylistPage()),
-      ).then((_) => _refreshData());
-    } else if (index == 2) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const ProfilePage()),
-      ).then((_) => _refreshData());
+  Widget _buildSongCover(Homepagesong song) {
+    print('Building cover for song: ${song.title}, coverPath: ${song.coverPath}');
+    if (song.coverPath != null) {
+      final coverFile = File(song.coverPath!);
+      if (coverFile.existsSync()) {
+        print('Using existing cover at ${song.coverPath}');
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(
+            coverFile,
+            width: 50,
+            height: 50,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              print('Error loading cover image for ${song.title}: $error');
+              return _buildDefaultCover(song);
+            },
+          ),
+        );
+      } else {
+        print('Cover file not found at ${song.coverPath}');
+      }
     }
+
+    return FutureBuilder<Directory>(
+      future: getApplicationDocumentsDirectory(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          print('Waiting for application directory for ${song.title}');
+          return _buildDefaultCover(song);
+        }
+        if (snapshot.hasError) {
+          print('Error accessing application directory: ${snapshot.error}');
+          return _buildDefaultCover(song);
+        }
+        final dir = snapshot.data!;
+        final possibleCoverNames = [
+          '${song.title}-cover.jpg',
+          'cover_${song.title}.jpg',
+        ];
+        for (final coverName in possibleCoverNames) {
+          final coverFile = File('${dir.path}/$coverName');
+          if (coverFile.existsSync()) {
+            print('Found alternative cover for ${song.title} at ${coverFile.path}');
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                coverFile,
+                width: 50,
+                height: 50,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  print('Error loading alternative cover for ${song.title}: $error');
+                  return _buildDefaultCover(song);
+                },
+              ),
+            );
+          }
+        }
+        print('No cover found for ${song.title}, using default');
+        return _buildDefaultCover(song);
+      },
+    );
+  }
+
+  Widget _buildDefaultCover(Homepagesong song) {
+    return Container(
+      width: 50,
+      height: 50,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Icon(Icons.music_note, color: Color(0xFFCE93D8), size: 30),
+    );
   }
 
   @override
@@ -483,12 +866,10 @@ class _MusicHomePageState extends State<MusicHomePage> {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
-        child: isLoading
-            ? const Center(child: SpinKitThreeBounce(color: Color(0xFFCE93D8), size: 24))
-            : Column(
+        child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.all(16.0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -496,16 +877,15 @@ class _MusicHomePageState extends State<MusicHomePage> {
                     'Your Music',
                     style: GoogleFonts.poppins(
                       color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   Row(
                     children: [
                       DropdownButton<SortType>(
-                        value: currentSort,
-                        icon: const Icon(Icons.sort, color: Color(0xFFCE93D8)),
                         dropdownColor: const Color(0xFF1E1E1E),
+                        value: currentSort,
                         items: const [
                           DropdownMenuItem(
                             value: SortType.name,
@@ -566,89 +946,207 @@ class _MusicHomePageState extends State<MusicHomePage> {
                 ),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: ElevatedButton.icon(
+                        onPressed: _addLocalSong,
+                        icon: const Icon(Icons.upload_file, color: Colors.white),
+                        label: Text(
+                          'Add Local',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFCE93D8),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 4,
+                          shadowColor: const Color(0xFFCE93D8).withOpacity(0.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: ElevatedButton.icon(
+                        onPressed: _addServerSong,
+                        icon: const Icon(Icons.cloud_download, color: Colors.white),
+                        label: Text(
+                          'Add Server',
+                          style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFCE93D8),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 4,
+                          shadowColor: const Color(0xFFCE93D8).withOpacity(0.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 8),
             Expanded(
-              child: userSongs.isEmpty
+              child: isLoading
+                  ? const Center(
+                child: SpinKitFadingCircle(
+                  color: Color(0xFFCE93D8),
+                  size: 50,
+                ),
+              )
+                  : userSongs.isEmpty
                   ? Center(
                 child: Text(
                   'No songs found. Add some!',
                   style: GoogleFonts.poppins(color: Colors.white54, fontSize: 16),
                 ),
               )
-                  : ListView.separated(
-                padding: EdgeInsets.zero,
-                itemCount: userSongs.length,
-                separatorBuilder: (context, index) => const Divider(
-                  color: Colors.white12,
-                  height: 1,
-                  thickness: 1,
-                ),
-                itemBuilder: (context, index) {
-                  final song = userSongs[index];
-                  return Container(
-                    color: const Color(0xFF1E1E1E),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      leading: Icon(
-                        song.isFromServer ? Icons.cloud : Icons.phone_android,
-                        color: const Color(0xFFCE93D8),
+                  : StreamBuilder<List<String>>(
+                stream: _likedSongsStreamController.stream,
+                initialData: _likedSongTitles,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    print('StreamBuilder error: ${snapshot.error}');
+                    return Center(
+                      child: Text(
+                        'Error: ${snapshot.error}',
+                        style: GoogleFonts.poppins(color: Colors.redAccent, fontSize: 16),
                       ),
-                      title: Text(
-                        song.title,
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        song.artist,
-                        style: GoogleFonts.poppins(
-                          color: Colors.white54,
-                          fontSize: 14,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (song.localPath == null || !File(song.localPath!).existsSync())
-                            IconButton(
-                              icon: const Icon(Icons.download, color: Color(0xFFCE93D8)),
-                              onPressed: () => _downloadSong(song),
-                            ),
-                          IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.redAccent),
-                            onPressed: () => _removeSong(song.title),
-                          ),
-                        ],
-                      ),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => MusicPlayerPage(
-                              song: Music(
-                                id: song.id,
-                                title: song.title,
-                                artist: song.artist,
-                                filePath: song.localPath ?? song.filePath,
-                              ),
-                              songs: userSongs
-                                  .map((s) => Music(
-                                id: s.id,
-                                title: s.title,
-                                artist: s.artist,
-                                filePath: s.localPath ?? s.filePath,
-                              ))
-                                  .toList(),
-                              currentIndex: index,
-                            ),
-                          ),
-                        );
-                      },
+                    );
+                  }
+                  final likedSongs = snapshot.data ?? _likedSongTitles;
+                  return ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: userSongs.length,
+                    separatorBuilder: (context, index) => const Divider(
+                      color: Colors.white12,
+                      height: 1,
+                      thickness: 1,
                     ),
+                    itemBuilder: (context, index) {
+                      final song = userSongs[index];
+                      final isLiked = likedSongs.contains(song.title.trim());
+                      return Container(
+                        color: const Color(0xFF1E1E1E),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                          leading: _buildSongCover(song),
+                          title: Text(
+                            song.title,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            song.artist,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white54,
+                              fontSize: 14,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(
+                                  isLiked ? Icons.favorite : Icons.favorite_border,
+                                  color: isLiked ? Colors.red : Colors.white54,
+                                  size: 24,
+                                ),
+                                onPressed: () => _toggleLike(song),
+                              ),
+                              PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert, color: Colors.white54),
+                                onSelected: (value) {
+                                  if (value == 'delete') {
+                                    _removeSong(song.title);
+                                  } else if (value == 'share') {
+                                    _shareSong(song);
+                                  }
+                                },
+                                itemBuilder: (BuildContext context) => [
+                                  PopupMenuItem(
+                                    value: 'share',
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.share, color: Colors.white),
+                                        const SizedBox(width: 8),
+                                        Text('Share', style: GoogleFonts.poppins(color: Colors.white)),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.delete, color: Colors.red),
+                                        const SizedBox(width: 8),
+                                        Text('Delete', style: GoogleFonts.poppins(color: Colors.red)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                color: const Color(0xFF1E1E1E),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ],
+                          ),
+                          onTap: () async {
+                            final result = await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => MusicPlayerPage(
+                                  song: Music(
+                                    id: song.id,
+                                    title: song.title,
+                                    artist: song.artist,
+                                    filePath: song.localPath ?? song.filePath,
+                                    coverPath: song.coverPath,
+                                  ),
+                                  songs: userSongs
+                                      .map((s) => Music(
+                                    id: s.id,
+                                    title: s.title,
+                                    artist: s.artist,
+                                    filePath: s.localPath ?? s.filePath,
+                                    coverPath: s.coverPath,
+                                  ))
+                                      .toList(),
+                                  currentIndex: index,
+                                ),
+                              ),
+                            );
+                            if (result == true) {
+                              await _refreshData();
+                            }
+                          },
+                        ),
+                      );
+                    },
                   );
                 },
               ),
@@ -656,26 +1154,10 @@ class _MusicHomePageState extends State<MusicHomePage> {
           ],
         ),
       ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            backgroundColor: const Color(0xFFCE93D8),
-            child: const Icon(Icons.upload_file, color: Colors.white),
-            onPressed: _addLocalSong,
-          ),
-          const SizedBox(height: 16),
-          FloatingActionButton(
-            backgroundColor: const Color(0xFFCE93D8),
-            child: const Icon(Icons.cloud_download, color: Colors.white),
-            onPressed: _addServerSong,
-          ),
-        ],
-      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onNavBarTapped,
-        backgroundColor: const Color(0xFF1E1E1E),
+        backgroundColor: const Color(0xFF000000),
         selectedItemColor: const Color(0xFFCE93D8),
         unselectedItemColor: Colors.white54,
         items: const [

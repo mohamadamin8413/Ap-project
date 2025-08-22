@@ -24,6 +24,7 @@ class _ProfilePageState extends State<ProfilePage> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   int _selectedIndex = 2;
+  final SocketService _socketService = SocketService();
 
   @override
   void initState() {
@@ -35,6 +36,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
+    _socketService.close();
     super.dispose();
   }
 
@@ -44,7 +46,6 @@ class _ProfilePageState extends State<ProfilePage> {
       currentUser = user;
       if (user != null) {
         _usernameController.text = user.username;
-        // Assuming allowSharing is part of User model, fetch it from backend
       }
     });
     if (user != null) {
@@ -55,16 +56,22 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _loadSharingSettings() async {
     try {
       final request = SocketRequest(
-        action: 'get_user', // Assuming backend supports fetching user details
+        action: 'get_user',
         data: {'email': currentUser!.email},
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
       );
-      final response = await SocketService().send(request);
+      print('Sending get_user request: ${request.toJson()}');
+      final response = await _socketService.send(request);
+      print('Response for get_user: ${response.toJson()}');
       if (response.isSuccess && response.data != null) {
         setState(() {
           allowSharing = response.data['allowSharing'] ?? true;
         });
+      } else {
+        _showMessage('Failed to load sharing settings: ${response.message}', error: true);
       }
     } catch (e) {
+      print('Error loading sharing settings: $e');
       _showMessage('Error loading sharing settings: $e', error: true);
     }
   }
@@ -85,8 +92,11 @@ class _ProfilePageState extends State<ProfilePage> {
               ? currentUser!.password
               : _passwordController.text.trim(),
         },
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
       );
-      final response = await SocketService().send(request);
+      print('Sending update_user request: ${request.toJson()}');
+      final response = await _socketService.send(request);
+      print('Response for update_user: ${response.toJson()}');
       if (response.isSuccess && response.data != null) {
         final updatedUser = User.fromJson(response.data as Map<String, dynamic>);
         await storage.saveCurrentUser(updatedUser);
@@ -100,6 +110,7 @@ class _ProfilePageState extends State<ProfilePage> {
         _showMessage('Failed to update profile: ${response.message}', error: true);
       }
     } catch (e) {
+      print('Error updating profile: $e');
       _showMessage('Error updating profile: $e', error: true);
     } finally {
       setState(() => isLoading = false);
@@ -115,8 +126,11 @@ class _ProfilePageState extends State<ProfilePage> {
           'email': currentUser!.email,
           'allow_sharing': !allowSharing,
         },
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
       );
-      final response = await SocketService().send(request);
+      print('Sending toggle_sharing request: ${request.toJson()}');
+      final response = await _socketService.send(request);
+      print('Response for toggle_sharing: ${response.toJson()}');
       if (response.isSuccess) {
         setState(() {
           allowSharing = !allowSharing;
@@ -126,6 +140,7 @@ class _ProfilePageState extends State<ProfilePage> {
         _showMessage('Failed to update sharing settings: ${response.message}', error: true);
       }
     } catch (e) {
+      print('Error updating sharing settings: $e');
       _showMessage('Error updating sharing settings: $e', error: true);
     } finally {
       setState(() => isLoading = false);
@@ -219,8 +234,11 @@ class _ProfilePageState extends State<ProfilePage> {
         final request = SocketRequest(
           action: 'delete_user',
           data: {'email': currentUser!.email},
+          requestId: DateTime.now().millisecondsSinceEpoch.toString(),
         );
-        final response = await SocketService().send(request);
+        print('Sending delete_user request: ${request.toJson()}');
+        final response = await _socketService.send(request);
+        print('Response for delete_user: ${response.toJson()}');
         if (response.isSuccess) {
           await storage.resetCurrentUser();
           Navigator.pushReplacement(
@@ -232,6 +250,7 @@ class _ProfilePageState extends State<ProfilePage> {
           _showMessage('Failed to delete account: ${response.message}', error: true);
         }
       } catch (e) {
+        print('Error deleting account: $e');
         _showMessage('Error deleting account: $e', error: true);
       } finally {
         setState(() => isLoading = false);
@@ -262,12 +281,12 @@ class _ProfilePageState extends State<ProfilePage> {
       _selectedIndex = index;
     });
     if (index == 0) {
-      Navigator.push(
+      Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const MusicHomePage()),
       );
     } else if (index == 1) {
-      Navigator.push(
+      Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const PlaylistPage()),
       );
@@ -280,213 +299,275 @@ class _ProfilePageState extends State<ProfilePage> {
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
         child: isLoading
-            ? const Center(child: SpinKitThreeBounce(color: Color(0xFFCE93D8), size: 24))
+            ? const Center(
+          child: SpinKitWaveSpinner(
+            color: Color(0xFFCE93D8),
+            size: 50,
+            waveColor: Color(0xFF8E24AA),
+          ),
+        )
             : SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Profile',
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontSize: 32,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 20),
-              if (currentUser != null) ...[
-                Text(
-                  'Email: ${currentUser!.email}',
-                  style: GoogleFonts.poppins(
-                    color: Colors.white54,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w400,
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFCE93D8), Color(0xFF8E24AA)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ),
-                const SizedBox(height: 20),
-                TextField(
-                  controller: _usernameController,
-                  style: GoogleFonts.poppins(color: Colors.white),
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: const Color(0xFF1E1E1E),
-                    hintText: 'Username',
-                    hintStyle: GoogleFonts.poppins(color: Colors.white54),
-                    prefixIcon: const Icon(Icons.person, color: Color(0xFFCE93D8)),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _passwordController,
-                  style: GoogleFonts.poppins(color: Colors.white),
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: const Color(0xFF1E1E1E),
-                    hintText: 'New Password (leave blank to keep current)',
-                    hintStyle: GoogleFonts.poppins(color: Colors.white54),
-                    prefixIcon: const Icon(Icons.lock, color: Color(0xFFCE93D8)),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFCE93D8), Color(0xFF8E24AA)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : _updateProfile,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      minimumSize: const Size(double.infinity, 0),
-                    ),
-                    child: Text(
-                      'Update Profile',
-                      style: GoogleFonts.poppins(
-                        fontSize: 18,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Allow others to share',
-                      style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
-                    Switch(
-                      value: allowSharing,
-                      activeColor: const Color(0xFFCE93D8),
-                      onChanged: (value) => _toggleSharing(),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                Container(
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 40,
+                      backgroundColor: const Color(0xFF1E1E1E),
+                      child: Icon(
+                        Icons.person,
+                        size: 50,
+                        color: Colors.white.withOpacity(0.8),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            currentUser?.username ?? 'User',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            currentUser?.email ?? 'No email',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white54,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              Card(
+                color: const Color(0xFF1E1E1E),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 4,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Update Profile',
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _usernameController,
+                        style: GoogleFonts.poppins(color: Colors.white),
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: const Color(0xFF2A2A2A),
+                          hintText: 'Username',
+                          hintStyle: GoogleFonts.poppins(color: Colors.white54),
+                          prefixIcon: const Icon(Icons.person, color: Color(0xFFCE93D8)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _passwordController,
+                        style: GoogleFonts.poppins(color: Colors.white),
+                        obscureText: true,
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: const Color(0xFF2A2A2A),
+                          hintText: 'New Password (leave blank to keep current)',
+                          hintStyle: GoogleFonts.poppins(color: Colors.white54),
+                          prefixIcon: const Icon(Icons.lock, color: Color(0xFFCE93D8)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 1),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFCE93D8), width: 2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      GestureDetector(
+                        onTap: isLoading ? null : _updateProfile,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFCE93D8), Color(0xFF8E24AA)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Update Profile',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Card(
+                color: const Color(0xFF1E1E1E),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 4,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Allow others to share',
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Switch(
+                        value: allowSharing,
+                        activeColor: const Color(0xFFCE93D8),
+                        activeTrackColor: const Color(0xFF8E24AA).withOpacity(0.5),
+                        onChanged: isLoading ? null : (value) => _toggleSharing(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              GestureDetector(
+                onTap: isLoading ? null : _logout,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [Color(0xFFCE93D8), Color(0xFF8E24AA)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.3),
-                        blurRadius: 10,
+                        blurRadius: 8,
                         offset: const Offset(0, 4),
                       ),
                     ],
                   ),
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : _logout,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      minimumSize: const Size(double.infinity, 0),
-                    ),
+                  child: Center(
                     child: Text(
                       'Logout',
                       style: GoogleFonts.poppins(
-                        fontSize: 18,
+                        fontSize: 16,
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
-                Container(
+              ),
+              const SizedBox(height: 16),
+              GestureDetector(
+                onTap: isLoading ? null : _deleteAccount,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [Colors.redAccent, Color(0xFFD32F2F)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.3),
-                        blurRadius: 10,
+                        blurRadius: 8,
                         offset: const Offset(0, 4),
                       ),
                     ],
                   ),
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : _deleteAccount,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      minimumSize: const Size(double.infinity, 0),
-                    ),
+                  child: Center(
                     child: Text(
                       'Delete Account',
                       style: GoogleFonts.poppins(
-                        fontSize: 18,
+                        fontSize: 16,
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
                 ),
-              ],
+              ),
             ],
           ),
         ),
@@ -494,7 +575,7 @@ class _ProfilePageState extends State<ProfilePage> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onNavBarTapped,
-        backgroundColor: const Color(0xFF1E1E1E),
+        backgroundColor: const Color(0xFF000000),
         selectedItemColor: const Color(0xFFCE93D8),
         unselectedItemColor: Colors.white54,
         items: const [

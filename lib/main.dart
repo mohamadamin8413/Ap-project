@@ -34,13 +34,13 @@ class _MyAppState extends State<MyApp> {
     try {
       final user = await storage.loadCurrentUser();
       setState(() {
-        _initialScreen = user != null ? MusicHomePage() : const Screen2();
+        _initialScreen = user != null ? MusicHomePage() : const SignUpScreen();
         _isLoading = false;
       });
     } catch (e) {
       print('Error loading user: $e');
       setState(() {
-        _initialScreen = const Screen2();
+        _initialScreen = const SignUpScreen();
         _isLoading = false;
       });
     }
