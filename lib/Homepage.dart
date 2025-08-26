@@ -520,7 +520,6 @@ class _MusicHomePageState extends State<MusicHomePage> {
     try {
       setState(() => isLoading = true);
 
-      // Pick audio file
       FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.audio);
       if (result == null || result.files.single.path == null) {
         _showMessage('No file selected', error: true);
@@ -533,24 +532,36 @@ class _MusicHomePageState extends State<MusicHomePage> {
         return;
       }
 
-      // Read metadata
-      final metadata = await readMetadata(file);
+      // Get app directory early to be able to save cover locally (if present in metadata)
+      final dir = await getApplicationDocumentsDirectory();
+
+      // Make sure to request metadata with images: getImage: true
+      final metadata = await readMetadata(file, getImage: true);
       final title = (metadata?.title?.trim().isNotEmpty ?? false)
           ? metadata!.title!.trim()
           : result.files.single.name.replaceAll('.mp3', '');
       final artist = (metadata?.artist?.trim().isNotEmpty ?? false) ? metadata!.artist!.trim() : 'Unknown Artist';
 
-      // Check for duplicates
       if (userSongs.any((song) => song.title.trim() == title)) {
         _showMessage('This song already exists in your library', error: true);
         return;
       }
 
-      // Encode cover if exists
       String? coverBase64;
+      String? localCoverPath;
       if (metadata != null && metadata.pictures.isNotEmpty) {
         try {
           coverBase64 = base64Encode(metadata.pictures.first.bytes);
+          // Save cover locally immediately so UI can show it even before server responds
+          try {
+            final coverBytes = metadata.pictures.first.bytes;
+            final coverFile = File('${dir.path}/${title}-cover.jpg');
+            await coverFile.writeAsBytes(coverBytes);
+            localCoverPath = coverFile.path;
+            print('Saved local cover for $title at $localCoverPath');
+          } catch (e) {
+            print('Error writing local cover file for $title: $e');
+          }
           print('Cover metadata found for $title');
         } catch (e) {
           print('Error encoding cover for $title: $e');
@@ -562,7 +573,6 @@ class _MusicHomePageState extends State<MusicHomePage> {
       final bytes = await file.readAsBytes();
       final fileBase64 = base64Encode(bytes);
 
-      // Prepare request
       final request = SocketRequest(
         action: 'add_local_music',
         data: {
@@ -580,24 +590,33 @@ class _MusicHomePageState extends State<MusicHomePage> {
 
       if (response.isSuccess && response.data != null) {
         final data = response.data as Map<String, dynamic>;
-        final dir = await getApplicationDocumentsDirectory();
         final localFile = File('${dir.path}/${data['filePath'] ?? '$title.mp3'}');
         await localFile.writeAsBytes(bytes);
 
         String? coverPath;
+        // If server returned cover, prefer that (and overwrite local if necessary),
+        // otherwise keep the cover we saved from metadata (localCoverPath).
         if (data.containsKey('cover') && data['cover'] != null && data['cover'].toString().isNotEmpty) {
           try {
             final coverBytes = base64Decode(data['cover'] as String);
             final coverFile = File('${dir.path}/${title}-cover.jpg');
             await coverFile.writeAsBytes(coverBytes);
             coverPath = coverFile.path;
-            print('Cover saved for $title at $coverPath');
+            print('Cover saved for $title at $coverPath (from server)');
           } catch (e) {
             print('Error saving cover from server for $title: $e');
             _showMessage('Error saving cover: $e', error: true);
+            // fallback to localCoverPath if writing server cover fails
+            coverPath = localCoverPath;
           }
         } else {
-          print('No cover returned from server for $title');
+          // No cover returned from server, use local one if available
+          coverPath = localCoverPath;
+          if (coverPath != null) {
+            print('No cover returned from server for $title, using local cover at $coverPath');
+          } else {
+            print('No cover available for $title');
+          }
         }
 
         _showMessage('Song added successfully');

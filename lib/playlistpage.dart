@@ -34,11 +34,11 @@ class _PlaylistPageState extends State<PlaylistPage> {
 
   // StreamController برای مدیریت state پلی‌لیست‌ها
   final StreamController<List<Playlist>> _playlistStreamController =
-      StreamController<List<Playlist>>.broadcast();
+  StreamController<List<Playlist>>.broadcast();
 
   // StreamController برای مدیریت state آهنگ‌ها
   final StreamController<List<Homepagesong>> _songStreamController =
-      StreamController<List<Homepagesong>>.broadcast();
+  StreamController<List<Homepagesong>>.broadcast();
 
   @override
   void initState() {
@@ -159,9 +159,9 @@ class _PlaylistPageState extends State<PlaylistPage> {
         final appDir = await getApplicationDocumentsDirectory();
         final loadedSongs = (response.data as List<dynamic>)
             .where((json) =>
-                json['id'] != null &&
-                json['title'] != null &&
-                json['filePath'] != null)
+        json['id'] != null &&
+            json['title'] != null &&
+            json['filePath'] != null)
             .map((json) {
           String? localPath;
           final expectedPath = '${appDir.path}/${json['title']}.mp3';
@@ -253,13 +253,13 @@ class _PlaylistPageState extends State<PlaylistPage> {
       if (response.isSuccess && response.data != null) {
         final users = (response.data as List<dynamic>)
             .where((json) =>
-                json['email'] != null &&
-                json['email'] is String &&
-                json['email'] != currentUser!.email)
+        json['email'] != null &&
+            json['email'] is String &&
+            json['email'] != currentUser!.email)
             .map((json) => {
-                  'email': json['email'] as String,
-                  'username': json['username'] as String? ?? 'Unknown',
-                })
+          'email': json['email'] as String,
+          'username': json['username'] as String? ?? 'Unknown',
+        })
             .toList();
 
         print('Loaded ${users.length} users');
@@ -444,7 +444,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
       if (response.isSuccess) {
         _showMessage('Playlist deleted successfully');
         final updatedPlaylists =
-            playlists.where((p) => p.id != playlist.id).toList();
+        playlists.where((p) => p.id != playlist.id).toList();
         _playlistStreamController.add(updatedPlaylists);
       } else {
         _showMessage('Failed to delete playlist: ${response.message}', error: true);
@@ -512,7 +512,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
                         'playlist_name': playlist.name,
                       },
                       requestId:
-                          DateTime.now().millisecondsSinceEpoch.toString(),
+                      DateTime.now().millisecondsSinceEpoch.toString(),
                     );
 
                     print(
@@ -646,128 +646,126 @@ class _PlaylistPageState extends State<PlaylistPage> {
             Expanded(
               child: isLoading
                   ? const Center(
-                      child: SpinKitThreeBounce(
-                          color: Color(0xFFCE93D8), size: 24))
+                  child: SpinKitThreeBounce(
+                      color: Color(0xFFCE93D8), size: 24))
                   : StreamBuilder<List<Playlist>>(
-                      stream: _playlistStreamController.stream,
-                      initialData: playlists,
-                      builder: (context, snapshot) {
-                        final currentPlaylists = snapshot.data ?? [];
+                stream: _playlistStreamController.stream,
+                initialData: playlists,
+                builder: (context, snapshot) {
+                  final currentPlaylists = snapshot.data ?? [];
 
-                        return currentPlaylists.isEmpty
-                            ? Center(
-                                child: Text(
-                                  'No playlists found. Create one!',
-                                  style: GoogleFonts.poppins(
-                                      color: Colors.white54, fontSize: 16),
+                  return currentPlaylists.isEmpty
+                      ? Center(
+                    child: Text(
+                      'No playlists found. Create one!',
+                      style: GoogleFonts.poppins(
+                          color: Colors.white54, fontSize: 16),
+                    ),
+                  )
+                      : ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: currentPlaylists.length,
+                    separatorBuilder: (context, index) =>
+                    const Divider(
+                      color: Colors.white12,
+                      height: 1,
+                      thickness: 1,
+                    ),
+                    itemBuilder: (context, index) {
+                      final playlist = currentPlaylists[index];
+                      return Container(
+                        color: const Color(0xFF1E1E1E),
+                        child: ListTile(
+                          contentPadding:
+                          const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 4),
+                          leading: Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1E1E),
+                              borderRadius:
+                              BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.queue_music,
+                                color: Color(0xFFCE93D8), size: 30),
+                          ),
+                          title: Text(
+                            playlist.name,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '${playlist.songIds.length} song${playlist.songIds.length != 1 ? 's' : ''}',
+                            style: GoogleFonts.poppins(
+                                color: Colors.white54,
+                                fontSize: 14),
+                          ),
+                          trailing: PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert,
+                                color: Colors.white54),
+                            onSelected: (value) {
+                              if (value == 'share') {
+                                _sharePlaylist(playlist);
+                              } else if (value == 'delete') {
+                                _deletePlaylist(playlist);
+                              }
+                            },
+                            itemBuilder: (BuildContext context) => [
+                              PopupMenuItem(
+                                value: 'share',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.share,
+                                        color: Colors.white),
+                                    const SizedBox(width: 8),
+                                    Text('Share', style: GoogleFonts.poppins(
+                                        color: Colors.white)),
+                                  ],
                                 ),
-                              )
-                            : ListView.separated(
-                                padding: EdgeInsets.zero,
-                                itemCount: currentPlaylists.length,
-                                separatorBuilder: (context, index) =>
-                                    const Divider(
-                                  color: Colors.white12,
-                                  height: 1,
-                                  thickness: 1,
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.delete,
+                                        color: Colors.red),
+                                    const SizedBox(width: 8),
+                                    Text('Delete', style: GoogleFonts.poppins(
+                                        color: Colors.red)),
+                                  ],
                                 ),
-                                itemBuilder: (context, index) {
-                                  final playlist = currentPlaylists[index];
-                                  return Container(
-                                    color: const Color(0xFF1E1E1E),
-                                    child: ListTile(
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                              horizontal: 16, vertical: 4),
-                                      leading: Container(
-                                        width: 50,
-                                        height: 50,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF1E1E1E),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: const Icon(Icons.queue_music,
-                                            color: Color(0xFFCE93D8), size: 30),
-                                      ),
-                                      title: Text(
-                                        playlist.name,
-                                        style: GoogleFonts.poppins(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 16,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      subtitle: Text(
-                                        '${playlist.songIds.length} song${playlist.songIds.length != 1 ? 's' : ''}',
-                                        style: GoogleFonts.poppins(
-                                            color: Colors.white54,
-                                            fontSize: 14),
-                                      ),
-                                      trailing: PopupMenuButton<String>(
-                                        icon: const Icon(Icons.more_vert,
-                                            color: Colors.white54),
-                                        onSelected: (value) {
-                                          if (value == 'share') {
-                                            _sharePlaylist(playlist);
-                                          } else if (value == 'delete') {
-                                            _deletePlaylist(playlist);
-                                          }
-                                        },
-                                        itemBuilder: (BuildContext context) => [
-                                          PopupMenuItem(
-                                            value: 'share',
-                                            child: Row(
-                                              children: [
-                                                const Icon(Icons.share,
-                                                    color: Colors.white),
-                                                const SizedBox(width: 8),
-                                                Text('Share',
-                                                    style: GoogleFonts.poppins(
-                                                        color: Colors.white)),
-                                              ],
-                                            ),
-                                          ),
-                                          PopupMenuItem(
-                                            value: 'delete',
-                                            child: Row(
-                                              children: [
-                                                const Icon(Icons.delete,
-                                                    color: Colors.red),
-                                                const SizedBox(width: 8),
-                                                Text('Delete',
-                                                    style: GoogleFonts.poppins(
-                                                        color: Colors.red)),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                        color: const Color(0xFF1E1E1E),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) =>
-                                                PlaylistDetailsPage(
-                                              playlist: playlist,
-                                              userSongs: userSongs,
-                                              currentUser: currentUser!,
-                                              onUpdate: _refreshData,
-                                              updateUserSongs: _updateUserSongs,
-                                            ),
-                                          ),
-                                        );
-                                      },
+                              ),
+                            ],
+                            color: const Color(0xFF1E1E1E),
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                              BorderRadius.circular(12),
+                            ),
+                          ),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    PlaylistDetailsPage(
+                                      playlist: playlist,
+                                      userSongs: userSongs,
+                                      currentUser: currentUser!,
+                                      onUpdate: _refreshData,
+                                      updateUserSongs: _updateUserSongs,
                                     ),
-                                  );
-                                },
-                              );
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  );
                 },
               ),
             ),
@@ -881,7 +879,88 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
         .toList();
   }
 
+  // New: fetch latest user songs from server and push them up to parent using updateUserSongs
+  Future<void> _fetchUserSongsFromServer() async {
+    try {
+      final socketService = SocketService();
+      final request = SocketRequest(
+        action: 'list_user_musics',
+        data: {'email': widget.currentUser.email},
+        requestId: DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+
+      print('PlaylistDetails: sending list_user_musics request: ${request.toJson()}');
+      final response = await socketService.send(request);
+      print('PlaylistDetails: server response: ${response.toJson()}');
+      socketService.close();
+
+      if (response.isSuccess && response.data != null) {
+        final appDir = await getApplicationDocumentsDirectory();
+        final loadedSongs = (response.data as List<dynamic>)
+            .where((json) =>
+        json['id'] != null &&
+            json['title'] != null &&
+            json['filePath'] != null)
+            .map((json) {
+          String? localPath;
+          final expectedPath = '${appDir.path}/${json['title']}.mp3';
+          if (File(expectedPath).existsSync()) {
+            localPath = expectedPath;
+          }
+
+          String? coverPath;
+          final possibleCoverNames = [
+            if (json['coverPath'] != null) json['coverPath'],
+            '${json['title']}-cover.jpg',
+            'cover_${json['title']}.jpg',
+          ];
+
+          for (final coverName in possibleCoverNames) {
+            final coverFile = File('${appDir.path}/$coverName');
+            if (coverFile.existsSync()) {
+              coverPath = coverFile.path;
+              break;
+            }
+          }
+
+          return Homepagesong.fromJson({
+            'id': json['id'],
+            'title': (json['title'] as String).trim(),
+            'artist': json['artist'] ?? 'Unknown',
+            'filePath': json['filePath'],
+            'uploaderEmail': json['uploaderEmail'] ?? widget.currentUser.email,
+            'isFromServer': json['uploaderEmail'] != null &&
+                json['uploaderEmail'] != widget.currentUser.email,
+            'addedAt': json['addedAt'] ?? DateTime.now().toIso8601String(),
+            'localPath': localPath,
+            'coverPath': coverPath,
+          });
+        }).toList();
+
+        // Push updated songs up to parent so both pages stay in sync
+        widget.updateUserSongs(loadedSongs);
+        if (mounted) {
+          setState(() {}); // rebuild with updated widget.userSongs
+        }
+        print('PlaylistDetails: refreshed ${loadedSongs.length} songs from server');
+      } else {
+        print('PlaylistDetails: failed to refresh songs: ${response.message}');
+      }
+    } catch (e) {
+      print('PlaylistDetails: error fetching user songs: $e');
+    }
+  }
+
   Future<void> _addSongToPlaylist() async {
+    // Before showing the list, refresh user's songs from server so we show the latest list
+    if (mounted) {
+      setState(() => isLoading = true);
+    }
+    await _fetchUserSongsFromServer();
+    if (mounted) {
+      setState(() => isLoading = false);
+    }
+
     final availableSongs = widget.userSongs
         .where((song) => !widget.playlist.songIds.contains(song.id))
         .toList();
@@ -966,9 +1045,13 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
         _showMessage('Song added to playlist');
         if (mounted) {
           setState(() {
-            widget.playlist.songIds.add(song.id);
+            // add song id to playlist locally so UI updates immediately
+            if (!widget.playlist.songIds.contains(song.id)) {
+              widget.playlist.songIds.add(song.id);
+            }
           });
         }
+        // Notify parent to refresh data (playlists and songs) — this will keep everything in sync
         widget.onUpdate();
       } else {
         _showMessage('Failed to add song: ${response.message}', error: true);
@@ -990,7 +1073,7 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
     try {
       final userSongs = _getUserSongsOnly();
       final song = userSongs.firstWhere(
-        (song) => song.title == musicName,
+            (song) => song.title == musicName,
         orElse: () => Homepagesong(
           id: 0,
           title: '',
@@ -1119,8 +1202,8 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
               title: s.title,
               artist: s.artist,
               filePath: s.localPath ?? s.filePath,
-                      coverPath: s.coverPath,
-                    ))
+              coverPath: s.coverPath,
+            ))
                 .toList(),
             currentIndex: index,
           ),
@@ -1168,9 +1251,9 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
             : Column(
           children: [
             Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 16),
-                    child: Row(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 16),
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   IconButton(
@@ -1204,113 +1287,113 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
                   style: GoogleFonts.poppins(color: Colors.white54, fontSize: 16),
                 ),
               )
-                        : ListView.separated(
-                            padding: EdgeInsets.zero,
-                            itemCount: playlistSongs.length,
-                            separatorBuilder: (context, index) => const Divider(
-                              color: Colors.white12,
-                              height: 1,
-                              thickness: 1,
-                            ),
-                            itemBuilder: (context, index) {
+                  : ListView.separated(
+                padding: EdgeInsets.zero,
+                itemCount: playlistSongs.length,
+                separatorBuilder: (context, index) => const Divider(
+                  color: Colors.white12,
+                  height: 1,
+                  thickness: 1,
+                ),
+                itemBuilder: (context, index) {
                   final song = playlistSongs[index];
-                              return FutureBuilder<String?>(
-                                future: _getSongCoverPath(song),
-                                builder: (context, snapshot) {
-                                  final coverPath = snapshot.data;
-                                  return Container(
-                                    color: const Color(0xFF1E1E1E),
-                                    child: ListTile(
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                              horizontal: 16, vertical: 4),
-                                      leading: coverPath != null
-                                          ? ClipRRect(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              child: Image.file(
-                                                File(coverPath),
-                                                width: 50,
-                                                height: 50,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (context, error,
-                                                        stackTrace) =>
-                                                    Container(
-                                                  width: 50,
-                                                  height: 50,
-                                                  decoration: BoxDecoration(
-                                                    color:
-                                                        const Color(0xFF1E1E1E),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            8),
-                                                  ),
-                                                  child: const Icon(
-                                                      Icons.music_note,
-                                                      color: Color(0xFFCE93D8),
-                                                      size: 30),
-                                                ),
-                                              ),
-                                            )
-                                          : Container(
-                                              width: 50,
-                                              height: 50,
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFF1E1E1E),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                              ),
-                                              child: const Icon(
-                                                  Icons.music_note,
-                                                  color: Color(0xFFCE93D8),
-                                                  size: 30),
-                                            ),
-                                      title: Text(
-                                        song.title,
-                                        style: GoogleFonts.poppins(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w600),
-                                      ),
-                                      subtitle: Text(
-                                        song.artist,
-                                        style: GoogleFonts.poppins(
-                                            color: Colors.white54),
-                                      ),
-                                      trailing: PopupMenuButton<String>(
-                                        icon: const Icon(Icons.more_vert,
-                                            color: Colors.white54),
-                                        onSelected: (value) {
-                                          if (value == 'delete') {
-                                            _removeSongFromPlaylist(song.title);
-                                          }
-                                        },
-                                        itemBuilder: (BuildContext context) => [
-                                          PopupMenuItem(
-                                            value: 'delete',
-                                            child: Row(
-                                              children: [
-                                                const Icon(Icons.delete,
-                                                    color: Colors.red),
-                                                const SizedBox(width: 8),
-                                                Text('Delete',
-                                                    style: GoogleFonts.poppins(
-                                                        color: Colors.red)),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                        color: const Color(0xFF1E1E1E),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                      onTap: () =>
-                                          _playSong(song, playlistSongs, index),
+                  return FutureBuilder<String?>(
+                    future: _getSongCoverPath(song),
+                    builder: (context, snapshot) {
+                      final coverPath = snapshot.data;
+                      return Container(
+                        color: const Color(0xFF1E1E1E),
+                        child: ListTile(
+                          contentPadding:
+                          const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 4),
+                          leading: coverPath != null
+                              ? ClipRRect(
+                            borderRadius:
+                            BorderRadius.circular(8),
+                            child: Image.file(
+                              File(coverPath),
+                              width: 50,
+                              height: 50,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error,
+                                  stackTrace) =>
+                                  Container(
+                                    width: 50,
+                                    height: 50,
+                                    decoration: BoxDecoration(
+                                      color:
+                                      const Color(0xFF1E1E1E),
+                                      borderRadius:
+                                      BorderRadius.circular(
+                                          8),
                                     ),
-                                  );
-                                },
-                              );
+                                    child: const Icon(
+                                        Icons.music_note,
+                                        color: Color(0xFFCE93D8),
+                                        size: 30),
+                                  ),
+                            ),
+                          )
+                              : Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1E1E),
+                              borderRadius:
+                              BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                                Icons.music_note,
+                                color: Color(0xFFCE93D8),
+                                size: 30),
+                          ),
+                          title: Text(
+                            song.title,
+                            style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            song.artist,
+                            style: GoogleFonts.poppins(
+                                color: Colors.white54),
+                          ),
+                          trailing: PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert,
+                                color: Colors.white54),
+                            onSelected: (value) {
+                              if (value == 'delete') {
+                                _removeSongFromPlaylist(song.title);
+                              }
+                            },
+                            itemBuilder: (BuildContext context) => [
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.delete,
+                                        color: Colors.red),
+                                    const SizedBox(width: 8),
+                                    Text('Delete',
+                                        style: GoogleFonts.poppins(
+                                            color: Colors.red)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            color: const Color(0xFF1E1E1E),
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                              BorderRadius.circular(12),
+                            ),
+                          ),
+                          onTap: () =>
+                              _playSong(song, playlistSongs, index),
+                        ),
+                      );
+                    },
+                  );
                 },
               ),
             ),

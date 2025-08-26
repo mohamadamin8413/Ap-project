@@ -79,7 +79,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     setState(() => isLoading = true);
     try {
       final request = SocketRequest(
-        action: 'signup',
+        action: 'register',
         data: {
           'email': email,
           'username': username,
