@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -12,6 +14,28 @@ import 'package:projectap/apiservice.dart';
 import 'package:projectap/appstorage.dart';
 
 AppStorage storage = AppStorage();
+
+
+String sanitizeFileName(String name) {
+  return name.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
+}
+
+
+Future<Uint8List?> extractCoverFromFile(File file) async {
+  try {
+    if (!await file.exists()) return null;
+    final dynamic maybeMeta = readMetadata(file, getImage: true);
+    final metadata = maybeMeta is Future ? await maybeMeta : maybeMeta;
+    if (metadata != null && metadata.pictures.isNotEmpty) {
+      final p = metadata.pictures.first.bytes;
+      if (p is Uint8List) return p;
+      if (p != null) return Uint8List.fromList(p);
+    }
+  } catch (e) {
+    print('extractCoverFromFile error: $e');
+  }
+  return null;
+}
 
 class MusicPlayerPage extends StatefulWidget {
   final Music song;
@@ -42,6 +66,7 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   User? _currentUser;
   List<String> _likedSongTitles = [];
   String? _currentCoverPath;
+  Uint8List? _currentCoverBytes;
   bool _needsRefresh = false;
 
   @override
@@ -60,9 +85,19 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   @override
   void dispose() {
     _player.dispose();
-    _socketService.close();
+    try {
+      _socket_service_close();
+    } catch (_) {}
     Navigator.pop(context, _needsRefresh);
     super.dispose();
+  }
+
+  void _socket_service_close() {
+    try {
+      _socketService.close();
+    } catch (e) {
+      print('Error closing socket service: $e');
+    }
   }
 
   Future<void> _loadCurrentUser() async {
@@ -80,26 +115,51 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   Future<void> _checkIfDownloaded() async {
     final song = widget.songs[_currentIndex];
     final dir = await getApplicationDocumentsDirectory();
-    final localFile = File('${dir.path}/${song.title}.mp3');
+    final safeTitle = sanitizeFileName(song.title);
+    final localFile = File('${dir.path}/$safeTitle.mp3');
     final exists = await localFile.exists();
+
+    Uint8List? coverBytes;
+    if (exists) {
+      coverBytes = await extractCoverFromFile(localFile);
+    }
 
     String? coverPath;
     final possibleCoverNames = [
-      if (song.coverPath != null) song.coverPath!,
+      '${safeTitle}-cover.jpg',
+      'cover_${safeTitle}.jpg',
       '${song.title}-cover.jpg',
       'cover_${song.title}.jpg',
     ];
 
-    for (final coverName in possibleCoverNames) {
-      final coverFile = File('${dir.path}/$coverName');
-      if (await coverFile.exists()) {
+    if (coverBytes == null) {
+      for (final name in possibleCoverNames) {
+        final f = File('${dir.path}/$name');
+        if (await f.exists()) {
+          coverPath = f.path;
+          try {
+            coverBytes = await f.readAsBytes();
+          } catch (e) {
+            print('Error reading cover file $name: $e');
+          }
+          break;
+        }
+      }
+    } else {
+      try {
+        final coverFile = File('${dir.path}/${safeTitle}-cover.jpg');
+        if (!coverFile.existsSync()) {
+          await coverFile.writeAsBytes(coverBytes);
+        }
         coverPath = coverFile.path;
-        break;
+      } catch (e) {
+        print('Error writing extracted cover to file: $e');
       }
     }
 
     setState(() {
       _isDownloaded = exists;
+      _currentCoverBytes = coverBytes;
       _currentCoverPath = coverPath;
     });
   }
@@ -137,7 +197,8 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
     try {
       final song = widget.songs[_currentIndex];
       final dir = await getApplicationDocumentsDirectory();
-      final localFile = File('${dir.path}/${song.title}.mp3');
+      final safeTitle = sanitizeFileName(song.title);
+      final localFile = File('${dir.path}/$safeTitle.mp3');
 
       if (await localFile.exists()) {
         await _player.setFilePath(localFile.path);
@@ -146,7 +207,39 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
           _isDownloading = false;
           _isPlaying = _player.playing;
         });
-        await _checkLocalCover(song, dir);
+
+        Uint8List? coverBytes = await extractCoverFromFile(localFile);
+        String? coverPath;
+        if (coverBytes != null) {
+          try {
+            final coverFile = File('${dir.path}/${safeTitle}-cover.jpg');
+            if (!coverFile.existsSync()) {
+              await coverFile.writeAsBytes(coverBytes);
+            }
+            coverPath = coverFile.path;
+          } catch (e) {
+            print('Error writing cover file: $e');
+          }
+        } else {
+          final possible = ['${safeTitle}-cover.jpg', 'cover_${safeTitle}.jpg'];
+          for (final name in possible) {
+            final f = File('${dir.path}/$name');
+            if (await f.exists()) {
+              try {
+                coverPath = f.path;
+                coverBytes = await f.readAsBytes();
+                break;
+              } catch (e) {
+                print('Error reading cover fallback $name: $e');
+              }
+            }
+          }
+        }
+
+        setState(() {
+          _currentCoverBytes = coverBytes;
+          _currentCoverPath = coverPath;
+        });
       } else {
         setState(() => _isDownloading = true);
         final request = SocketRequest(
@@ -164,19 +257,39 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
           await localFile.writeAsBytes(musicData);
           await _player.setFilePath(localFile.path);
 
+          Uint8List? coverBytes;
+          String? coverPath;
           if (data.containsKey('cover') && data['cover'].toString().isNotEmpty) {
-            final coverData = base64Decode(data['cover'] as String);
-            final coverFile = File('${dir.path}/${song.title}-cover.jpg');
-            await coverFile.writeAsBytes(coverData);
-            setState(() {
-              _currentCoverPath = coverFile.path;
-            });
+            try {
+              coverBytes = base64Decode(data['cover'] as String);
+              final coverFile = File('${dir.path}/${safeTitle}-cover.jpg');
+              await coverFile.writeAsBytes(coverBytes);
+              coverPath = coverFile.path;
+            } catch (e) {
+              print('Error decoding/writing server cover: $e');
+            }
+          }
+          if (coverBytes == null) {
+            coverBytes = await extractCoverFromFile(localFile);
+            if (coverBytes != null) {
+              try {
+                final coverFile = File('${dir.path}/${safeTitle}-cover.jpg');
+                if (!coverFile.existsSync()) {
+                  await coverFile.writeAsBytes(coverBytes);
+                }
+                coverPath = coverFile.path;
+              } catch (e) {
+                print('Error writing extracted cover to file: $e');
+              }
+            }
           }
 
           setState(() {
             _isDownloaded = true;
             _isDownloading = false;
             _isPlaying = _player.playing;
+            _currentCoverBytes = coverBytes;
+            _currentCoverPath = coverPath;
             _needsRefresh = true;
           });
         } else {
@@ -204,7 +317,7 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
         requestId: DateTime.now().millisecondsSinceEpoch.toString(),
       );
       print('Sending list_users request: ${request.toJson()}');
-      final response = await _socketService.send(request);
+      final response = await _socket_service_send(request);
       print('Response for list_users: ${response.toJson()}');
       if (response.isSuccess && response.data != null) {
         final users = (response.data as List<dynamic>)
@@ -229,6 +342,10 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
       _showMessage('Error loading users: $e', error: true);
       return [];
     }
+  }
+
+  Future<dynamic> _socket_service_send(SocketRequest request) async {
+    return await _socketService.send(request);
   }
 
   Future<void> _shareSong() async {
@@ -448,22 +565,127 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
     );
   }
 
-  Future<void> _checkLocalCover(Music song, Directory dir) async {
-    final possiblePaths = [
-      if (song.coverPath != null) '${dir.path}/${song.coverPath}',
-      '${dir.path}/${song.title}-cover.jpg',
-      '${dir.path}/cover_${song.title}.jpg',
-    ];
+  Widget _buildSongCover(Music song) {
+    final dirFuture = getApplicationDocumentsDirectory();
 
-    for (final path in possiblePaths) {
-      final file = File(path);
-      if (await file.exists()) {
-        setState(() {
-          _currentCoverPath = path;
-        });
-        return;
+    if (_currentCoverBytes != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.memory(
+          _currentCoverBytes!,
+          width: 250,
+          height: 250,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _buildDefaultCover(song);
+          },
+        ),
+      );
+    }
+
+    if (_currentCoverPath != null) {
+      final coverFile = File(_currentCoverPath!);
+      if (coverFile.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Image.file(
+            coverFile,
+            width: 250,
+            height: 250,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return _buildDefaultCover(song);
+            },
+          ),
+        );
       }
     }
+
+    return FutureBuilder<Directory>(
+      future: dirFuture,
+      builder: (context, snap) {
+        if (!snap.hasData) return _buildDefaultCover(song);
+        final dir = snap.data!;
+        final safeTitle = sanitizeFileName(song.title);
+        final localPaths = [
+          '${dir.path}/$safeTitle.mp3',
+          '${dir.path}/${song.title}.mp3',
+        ];
+        for (final p in localPaths) {
+          final f = File(p);
+          if (f.existsSync()) {
+            return FutureBuilder<Uint8List?>(
+              future: extractCoverFromFile(f),
+              builder: (c, s2) {
+                if (s2.connectionState == ConnectionState.done && s2.data != null) {
+                  // cache it for future renders
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    setState(() {
+                      _currentCoverBytes = s2.data;
+                    });
+                  });
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.memory(
+                      s2.data!,
+                      width: 250,
+                      height: 250,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return _buildDefaultCover(song);
+                      },
+                    ),
+                  );
+                }
+                final possibleCoverFiles = [
+                  '${dir.path}/${safeTitle}-cover.jpg',
+                  '${dir.path}/cover_${safeTitle}.jpg',
+                  '${dir.path}/${song.title}-cover.jpg',
+                ];
+                for (final cp in possibleCoverFiles) {
+                  final cf = File(cp);
+                  if (cf.existsSync()) {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.file(cf, width: 250, height: 250, fit: BoxFit.cover),
+                    );
+                  }
+                }
+                return _buildDefaultCover(song);
+              },
+            );
+          }
+        }
+        return _buildDefaultCover(song);
+      },
+    );
+  }
+
+  Widget _buildDefaultCover(Music song) {
+    return Container(
+      width: 250,
+      height: 250,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1E1E1E), Color(0xFF121212)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 10,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Icon(
+        song.filePath.contains(_currentUser?.email ?? '') ? Icons.phone_android : Icons.cloud,
+        color: const Color(0xFFCE93D8),
+        size: 60,
+      ),
+    );
   }
 
   @override
@@ -549,13 +771,11 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                         children: [
                           Text(
                             _formatDuration(_position),
-                            style: GoogleFonts.poppins(
-                                fontSize: 14, color: Colors.white54),
+                            style: GoogleFonts.poppins(fontSize: 14, color: Colors.white54),
                           ),
                           Text(
                             _formatDuration(_duration),
-                            style: GoogleFonts.poppins(
-                                fontSize: 14, color: Colors.white54),
+                            style: GoogleFonts.poppins(fontSize: 14, color: Colors.white54),
                           ),
                         ],
                       ),
@@ -567,17 +787,12 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         IconButton(
-                          icon: Icon(
-                            _isLiked ? Icons.favorite : Icons.favorite_border,
-                            color: _isLiked ? Colors.red : Colors.white,
-                            size: 30,
-                          ),
+                          icon: Icon(_isLiked ? Icons.favorite : Icons.favorite_border, color: _isLiked ? Colors.red : Colors.white, size: 30),
                           onPressed: _toggleLike,
                         ),
                         const SizedBox(width: 40),
                         IconButton(
-                          icon: const Icon(Icons.share,
-                              color: Colors.white, size: 30),
+                          icon: const Icon(Icons.share, color: Colors.white, size: 30),
                           onPressed: _shareSong,
                         ),
                       ],
@@ -595,22 +810,12 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        IconButton(
-          icon: const Icon(Icons.skip_previous, color: Colors.white, size: 40),
-          onPressed: _playPrevious,
-        ),
+        IconButton(icon: const Icon(Icons.skip_previous, color: Colors.white, size: 40), onPressed: _playPrevious),
         const SizedBox(width: 20),
         Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFFCE93D8),
-            borderRadius: BorderRadius.circular(30),
-          ),
+          decoration: BoxDecoration(color: const Color(0xFFCE93D8), borderRadius: BorderRadius.circular(30)),
           child: IconButton(
-            icon: Icon(
-              _isPlaying ? Icons.pause : Icons.play_arrow,
-              color: Colors.white,
-              size: 40,
-            ),
+            icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow, color: Colors.white, size: 40),
             onPressed: () {
               if (_isPlaying) {
                 _player.pause();
@@ -621,97 +826,8 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
           ),
         ),
         const SizedBox(width: 20),
-        IconButton(
-          icon: const Icon(Icons.skip_next, color: Colors.white, size: 40),
-          onPressed: _playNext,
-        ),
+        IconButton(icon: const Icon(Icons.skip_next, color: Colors.white, size: 40), onPressed: _playNext),
       ],
-    );
-  }
-
-  Widget _buildSongCover(Music song) {
-    return FutureBuilder<Directory>(
-      future: getApplicationDocumentsDirectory(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return _buildDefaultCover(song);
-        }
-
-        final dir = snapshot.data!;
-
-        if (_currentCoverPath != null) {
-          final coverFile = File(_currentCoverPath!);
-          if (coverFile.existsSync()) {
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Image.file(
-                coverFile,
-                width: 250,
-                height: 250,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return _buildDefaultCover(song);
-                },
-              ),
-            );
-          }
-        }
-
-        final possiblePaths = [
-          if (song.coverPath != null) '${dir.path}/${song.coverPath}',
-          '${dir.path}/${song.title}-cover.jpg',
-          '${dir.path}/cover_${song.title}.jpg',
-        ];
-
-        for (final path in possiblePaths) {
-          final file = File(path);
-          if (file.existsSync()) {
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Image.file(
-                file,
-                width: 250,
-                height: 250,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return _buildDefaultCover(song);
-                },
-              ),
-            );
-          }
-        }
-
-        return _buildDefaultCover(song);
-      },
-    );
-  }
-
-  Widget _buildDefaultCover(Music song) {
-    return Container(
-      width: 250,
-      height: 250,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1E1E1E), Color(0xFF121212)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 10,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: Icon(
-        song.filePath.contains(_currentUser?.email ?? '')
-            ? Icons.phone_android
-            : Icons.cloud,
-        color: const Color(0xFFCE93D8),
-        size: 60,
-      ),
     );
   }
 
