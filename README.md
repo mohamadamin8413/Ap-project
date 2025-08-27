@@ -1,7 +1,9 @@
 # 🎵 AP Project (Music App)
 
 A simple music management application that allows users to add **loc![Screenshot_2025-08-27-09-35-34-797_com example projectap](https://github.com/user-attachments/assets/1ded94cf-308e-4559-ae77-642b4f884764)
-al** songs and manage playlists offline. The project includes **song listing, playlist management, and a clean music player interface**.![![Screenshot_2025-08-27-09-35-20-982_com example projectap](https://github.com/user-attachments/assets/3a14463b-da43-4c57-bbd9-8ebc8b2e53f7)
+al** songs and manage playlists offline. The ![Screenshot_2025-08-27-09-35-20-982_com example projectap](https://github.com/user-attachments/assets/41a1e3df-c6d2-47d4-853b-a8f2bae4e6d7)
+project includes **song listing, playlist management, and a clean music player interface**.![![![Screenshot_2025-08-27-09-35-34-797_com example projectap](https://github.com/user-attachments/assets/6882c15e-5477-419b-9149-3ef19cdc6797)
+Screenshot_2025-08-27-09-35-20-982_com example projectap](https://github.com/user-attachments/assets/3a14463b-da43-4c57-bbd9-8ebc8b2e53f7)
 Screenshot_2025-08-27-09-35-47-553_com example projectap](https://github.com/user-attachments/assets/f39a405a-ea3f-4c44-a79a-b235720c68de)
 
 
