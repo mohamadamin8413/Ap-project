@@ -147,7 +147,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
   }
 
   void _socket_service_close() {
-    try { _socketService.close(); } catch (e) { print('socket close error: $e'); }
+    try { _socketService.close(); } catch (e) {  }
   }
 
   Future<void> _loadCurrentUser() async {
@@ -205,7 +205,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
         return await coverFile.readAsBytes();
       }
     } catch (e) {
-      print('extractCoverBytesFromFile error: $e');
+
     }
     return null;
   }
@@ -220,7 +220,6 @@ class _MusicHomePageState extends State<MusicHomePage> {
           height: 50,
           fit: BoxFit.cover,
           errorBuilder: (context, error, stackTrace) {
-            print('Error painting cover memory: $error');
             return _buildDefaultCover(song);
           },
         ),
@@ -407,7 +406,7 @@ class _MusicHomePageState extends State<MusicHomePage> {
         _showMessage('Failed to load user songs: ${response.message}', error: true);
       }
     } catch (e) {
-      print('Error loading songs: $e');
+
       _showMessage('Error loading songs: $e', error: true);
     }
   }

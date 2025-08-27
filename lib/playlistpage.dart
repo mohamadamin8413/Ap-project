@@ -36,7 +36,7 @@ Future<Uint8List?> extractCoverFromFile(File file) async {
     final coverFile2 = File('$parent/cover_${baseName}.jpg');
     if (await coverFile2.exists()) return await coverFile2.readAsBytes();
   } catch (e) {
-    print('extractCoverFromFile error: $e');
+    print('Error extracting cover: $e');
   }
   return null;
 }
@@ -120,7 +120,6 @@ class _PlaylistPageState extends State<PlaylistPage> {
       }
       _updateUserSongs(List<Homepagesong>.from(userSongs));
     } catch (e) {
-      print('Error refreshing data: $e');
       _showMessage('Error refreshing data: $e', error: true);
     } finally {
       if (mounted) setState(() => isLoading = false);
@@ -203,16 +202,17 @@ class _PlaylistPageState extends State<PlaylistPage> {
             }
           }
         } catch (e) {
-          print('Error extracting/writing cover for ${musicJson['title']}: $e');
+          print('Error downloading cover: $e');
         }
       }
     } catch (e) {
-      print('Error downloading missing song for playlist: $e');
+      print('Error downloading song: $e');
     }
   }
 
   Future<void> _ensurePlaylistSongsLoaded(Playlist playlist) async {
     final missingIds = playlist.songIds.where((id) => !userSongs.any((s) => s.id == id)).toList();
+    print('Missing song IDs for ${playlist.name}: $missingIds'); // دیباگ
     if (missingIds.isEmpty) return;
     for (final id in missingIds) {
       await _loadSingleSong(id);
@@ -230,6 +230,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
       );
       final response = await socketService.send(request);
       socketService.close();
+      print('Load single song response for ID $songId: ${response.toJson()}'); // دیباگ
       if (response.isSuccess && response.data != null) {
         final json = response.data as Map<String, dynamic>;
         final appDir = await getApplicationDocumentsDirectory();
@@ -264,7 +265,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
                 }
               }
             } catch (e) {
-              print('Cover write error in details page: $e');
+              print('Cover write error: $e');
             }
           }
         }
@@ -283,7 +284,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
               artist = metadata.artist?.trim() ?? artist;
             }
           } catch (e) {
-            print('Metadata read error for $localPath: $e');
+            print('Metadata read error: $e');
           }
         }
         final song = Homepagesong(
@@ -302,6 +303,8 @@ class _PlaylistPageState extends State<PlaylistPage> {
           updatedSongs.add(song);
           _updateUserSongs(updatedSongs);
         }
+      } else {
+        _showMessage('Failed to load song: ${response.message}', error: true);
       }
     } catch (e) {
       _showMessage('Error loading song: $e', error: true);
@@ -319,6 +322,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
       );
       final response = await socketService.send(request);
       socketService.close();
+      print('Load user songs response: ${response.toJson()}'); // دیباگ
       if (response.isSuccess && response.data != null && response.data is List<dynamic>) {
         final appDir = await getApplicationDocumentsDirectory();
         final futures = (response.data as List<dynamic>)
@@ -1076,6 +1080,7 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
 
   Future<void> _ensurePlaylistSongsLoaded() async {
     final missingIds = widget.playlist.songIds.where((id) => !currentUserSongs.any((s) => s.id == id)).toList();
+    print('Missing song IDs in details: $missingIds');
     if (missingIds.isEmpty) return;
     if (mounted) setState(() {
       isLoading = true;
@@ -1103,6 +1108,7 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
       );
       final response = await socketService.send(request);
       socketService.close();
+      print('Load single song response in details for ID $songId: ${response.toJson()}'); // دیباگ
       if (response.isSuccess && response.data != null) {
         final json = response.data as Map<String, dynamic>;
         final appDir = await getApplicationDocumentsDirectory();
@@ -1137,7 +1143,7 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
                 }
               }
             } catch (e) {
-              print('Cover write error in details page: $e');
+              print('Cover write error in details: $e');
             }
           }
         }
@@ -1241,12 +1247,13 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
         data: {
           'email': widget.currentUser.email,
           'playlist_name': widget.playlist.name,
-          'music_name': song.title,
+          'music_id': song.id,
         },
         requestId: DateTime.now().millisecondsSinceEpoch.toString(),
       );
       final response = await socketService.send(request);
       socketService.close();
+      print('Add song to playlist response: ${response.toJson()}');
       if (response.isSuccess) {
         _showMessage('Song added to playlist');
         if (mounted) {
@@ -1265,11 +1272,11 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
     }
   }
 
-  Future<void> _removeSongFromPlaylist(String musicName) async {
+  Future<void> _removeSongFromPlaylist(int songId) async {
     if (mounted) setState(() => isLoading = true);
     try {
       final song = currentUserSongs.firstWhere(
-            (s) => s.title == musicName,
+            (s) => s.id == songId,
         orElse: () => Homepagesong(
           id: 0,
           title: '',
@@ -1292,17 +1299,18 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
         data: {
           'email': widget.currentUser.email,
           'playlist_name': widget.playlist.name,
-          'music_name': musicName,
+          'music_id': songId,
         },
         requestId: DateTime.now().millisecondsSinceEpoch.toString(),
       );
       final response = await socketService.send(request);
       socketService.close();
+      print('Remove song from playlist response: ${response.toJson()}');
       if (response.isSuccess) {
         _showMessage('Song removed from playlist');
         if (mounted) {
           setState(() {
-            widget.playlist.songIds.remove(song.id);
+            widget.playlist.songIds.remove(songId);
           });
         }
         widget.onUpdate();
@@ -1416,6 +1424,7 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
   @override
   Widget build(BuildContext context) {
     final playlistSongs = currentUserSongs.where((song) => widget.playlist.songIds.contains(song.id)).toList();
+    print('Playlist ${widget.playlist.name} songs count: ${playlistSongs.length}, songIds: ${widget.playlist.songIds}'); // دیباگ
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: SafeArea(
@@ -1480,7 +1489,7 @@ class _PlaylistDetailsPageState extends State<PlaylistDetailsPage> {
                       ),
                       trailing: IconButton(
                         icon: const Icon(Icons.remove_circle, color: Colors.redAccent),
-                        onPressed: () => _removeSongFromPlaylist(song.title),
+                        onPressed: () => _removeSongFromPlaylist(song.id),
                       ),
                       onTap: () => _playSong(song, playlistSongs, index),
                     ),
