@@ -20,7 +20,7 @@ Screenshot_2025-08-27-09-35-47-553_com example projectap](https://github.com/use
 
 ## 📷 Screenshots
 
-Ensure screenshots are in **PNG** format, 24-bit depth, with a recommended resolution of 1080x1920 or an aspect ratio of 9:16 to comply with Google Play requirements. Avoid transparency and use tools like GIMP or Photoshop to convert images if needed. If screenshots are not displaying, verify the file paths and ensure the images are in the repository's root directory or a designated `screenshots` folder.
+Ensure screenshots are in **PNG** format, 24-bit depth, with a recommended resolution of 1080x1920 or an aspect ratio of 9:16 to comply with Google Play requirements. Avoid transparency and use tools like GIMP or Photoshop to convert images if needed. Place screenshot files in the `./screenshots/` directory in the repository to ensure they display correctly on GitHub.
 
 ### Songs Page
 <img src="./screenshots/Screenshot_SongsPage.png" width="300" alt="Songs Page showing the list of local songs"/>
@@ -31,7 +31,7 @@ Ensure screenshots are in **PNG** format, 24-bit depth, with a recommended resol
 ### Music Player
 <img src="./screenshots/Screenshot_MusicPlayer.png" width="300" alt="Music Player interface playing a song"/>
 
-*Note*: If screenshots fail to display, ensure the files exist in the `./screenshots/` directory and are correctly named. For Google Play uploads, convert images to JPEG if PNG issues persist.
+*Note*: If screenshots fail to display, ensure the files (`Screenshot_SongsPage.png`, `Screenshot_PlaylistPage.png`, `Screenshot_MusicPlayer.png`) exist in the `./screenshots/` directory and are correctly named. For Google Play uploads, convert images to JPEG if PNG issues persist (e.g., incorrect bit depth or transparency).
 
 ---
 
@@ -94,6 +94,6 @@ This repository contains two main branches:
 ---
 
 ## 🛠 Troubleshooting
-- **Screenshots not displaying**: Verify the image files exist in the `./screenshots/` directory and match the referenced paths. Ensure they are PNG or JPEG files with no transparency and correct bit depth (24-bit for PNG). Use Android Studio's Screen Capture tool to take screenshots with proper dimensions (e.g., 1080x1920).
+- **Screenshots not displaying**: Verify the image files exist in the `./screenshots/` directory and match the referenced paths (`Screenshot_SongsPage.png`, `Screenshot_PlaylistPage.png`, `Screenshot_MusicPlayer.png`). Ensure they are PNG or JPEG files with no transparency and correct bit depth (24-bit for PNG). Use Android Studio's Screen Capture tool (View > Tool Windows > Logcat > Screen Capture) to take screenshots with proper dimensions (e.g., 1080x1920).
 - **Permission issues**: Ensure storage permissions are granted on the device. For Android 13+, use `READ_MEDIA_AUDIO` permission.
 - **Missing songs**: Ensure the device has music files in supported formats (e.g., MP3) and that the app has storage access.
